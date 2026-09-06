@@ -193,15 +193,19 @@ footer p{max-width:80ch;margin:3px 0}
 .agenda-turno.n{background:color-mix(in srgb,var(--color-accent-2) 7%,transparent);border-top-color:var(--color-accent-2-600)}
 .agenda-turno b{font-family:var(--font-heading);font-weight:400;font-size:17px}
 .agenda-turno small{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;opacity:.5;margin-left:auto}
-.tarjeta{display:grid;grid-template-columns:62px 1fr;gap:12px;width:100%;text-align:left;font:inherit;
+.tarjeta{display:grid;grid-template-columns:66px 1fr;gap:14px;width:100%;text-align:left;font:inherit;
   background:#fdfdfd;border:0;border-left:3px solid var(--color-neutral-500);border-radius:2px;
   padding:9px 11px;margin-bottom:5px;cursor:pointer;box-shadow:0 1px 2px color-mix(in srgb,#2d2b2b 8%,transparent)}
 .tarjeta.turno-t{border-left-color:var(--color-accent)}
 .tarjeta.turno-n{border-left-color:var(--color-accent-2-600)}
 .tarjeta.cruce{background:var(--color-accent-2-600);color:var(--color-bg)}
 .tarjeta.evento{background:var(--color-neutral-100);border-left-color:var(--color-text);border-left-style:double;border-left-width:6px}
-.tarjeta .aula{font-family:var(--font-heading);font-size:19px;line-height:1.05}
-.tarjeta .aula small{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.5}
+.tarjeta .aula{font-family:var(--font-heading);font-size:19px;line-height:1.05;
+  overflow-wrap:anywhere;hyphens:none;min-width:0}
+/* Nombres como VIRTUAL o POR DEFINIR no caben a 19px: se reducen en vez de desbordarse. */
+.tarjeta .aula.larga{font-size:12.5px;line-height:1.15;letter-spacing:.03em;text-transform:uppercase;padding-top:3px}
+.tarjeta .aula small{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.5;
+  margin-top:2px;font-family:var(--font-body);text-transform:none}
 .tarjeta .curso{font-size:14.5px;line-height:1.25}
 .tarjeta .meta{font-size:12.5px;opacity:.65;font-variant-numeric:tabular-nums;margin-top:2px}
 .tarjeta.cruce .meta,.tarjeta.cruce .aula small{opacity:.85}
@@ -304,6 +308,7 @@ var FRANJAS = [
 ];
 var DIA_INI = '08:00', DIA_FIN = '22:30';
 var AFORO = D.aforoEstandar || 23;
+
 var LS = 'chiolecca.ambientes.';
 
 var S = {
@@ -321,6 +326,39 @@ function norm(s){
   return String(s==null?'':s).toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Q10 guarda los cursos sin tildes y con mayúsculas irregulares
+   ("DISEÑO DE CALZADO", "Diseno De Coleccion", "COSTURA kIDS").
+   Esto los normaliza al mostrarlos, sin tocar el dato de origen.
+   Para añadir una palabra, agrégala al diccionario y listo.
+   ────────────────────────────────────────────────────────────── */
+var TILDES = {
+  produccion:'Producción', coleccion:'Colección', colecciones:'Colecciones',
+  diseno:'Diseño', gestion:'Gestión', direccion:'Dirección', innovacion:'Innovación',
+  confeccion:'Confección', informacion:'Información', comunicacion:'Comunicación',
+  ilustracion:'Ilustración', estampacion:'Estampación', introduccion:'Introducción',
+  administracion:'Administración', tecnicas:'Técnicas', tecnica:'Técnica',
+  tecnologia:'Tecnología', tecnologias:'Tecnologías', fotografia:'Fotografía',
+  sastreria:'Sastrería', sombreria:'Sombrería', lenceria:'Lencería',
+  pedreria:'Pedrería', ingenieria:'Ingeniería', contemporanea:'Contemporánea',
+  macrame:'Macramé', efsrt:'EFSRT', kids:'Kids'
+};
+/* Palabras que van en minúscula salvo al inicio del nombre. */
+var ENLACES = ['de','del','la','las','los','el','y','e','en','para','a','con','por','al'];
+
+function titulo(s){
+  if(!s) return '';
+  return String(s).trim().toLowerCase().split(/\s+/).map(function(w, i){
+    var sufijo = '';
+    var m = w.match(/^(.+?)([,.;:]+)$/);          // conserva la coma de "Palitos, Crochet"
+    if(m){ w = m[1]; sufijo = m[2]; }
+    if(TILDES[w]) return TILDES[w] + sufijo;
+    if(i > 0 && ENLACES.indexOf(w) >= 0) return w + sufijo;
+    return w.charAt(0).toUpperCase() + w.slice(1) + sufijo;
+  }).join(' ');
+}
+
 function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 /* Acepta "13:00". Si llega una fecha completa (Google convierte horas en fechas de 1899),
    rescata la hora. Si no reconoce nada, devuelve '' y el cambio de horario se ignora. */
@@ -826,7 +864,7 @@ function vGrilla(){
         var cls = 'tarjeta turno-'+f.clave + (cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
         var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
         g += '<button class="'+cls+'" data-id="'+esc(p.id)+'">' +
-          '<div class="aula">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
+          '<div class="aula'+((p.aula||'').length>4?' larga':'')+'">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
           '<div><div class="curso">'+esc(p.esEvento?(p.seccion||p.curso):p.curso)+'</div>' +
           '<div class="meta">'+esc(p.horario)+' · '+esc(p.seccion)+'</div>' +
           '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
@@ -1380,6 +1418,9 @@ el('pieFuente').textContent = 'Fuente: ' + D.libro + ', hoja PROGRAMACIÓN EDITA
   var s = localStorage.getItem(LS+'sesion');
   if(s){ try{ S.sesion = JSON.parse(s); }catch(e){} }
 })();
+
+/* Normaliza los nombres de curso una sola vez, antes del primer dibujado. */
+D.prog.forEach(function(p){ p.curso = titulo(p.curso); });
 
 render();
 var anchoPrevio = window.innerWidth;

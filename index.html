@@ -117,7 +117,11 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 .heat-fila{display:grid;grid-template-columns:64px repeat(18,1fr);gap:2px;margin-top:2px}
 .heat-cab{display:grid;grid-template-columns:64px repeat(18,1fr);gap:2px;margin-bottom:3px}
 .heat-aula{font-size:13px;padding-right:8px;text-align:right;line-height:26px}
-.heat-dia{font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.6;text-align:center;grid-column:span 3}
+.heat-dia{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;opacity:.75;text-align:center;grid-column:span 3;
+  border-top:2px solid var(--color-text);padding-top:4px}
+.dia-ini{border-left:1px solid color-mix(in srgb,var(--color-text) 32%,transparent);margin-left:-1px;padding-left:1px}
+.heat-dia.dia-ini{border-left:0}
+.heat-cab .heat-turno.dia-ini,.heat-fila .heat-celda.dia-ini{box-shadow:inset 2px 0 0 -1px color-mix(in srgb,var(--color-text) 45%,transparent)}
 .heat-turno{font-size:10px;text-align:center;opacity:.5}
 .heat-celda{height:26px;border:0;cursor:pointer;font-size:10px;color:var(--color-bg);
   display:flex;align-items:center;justify-content:center;font-family:var(--font-body);border-radius:1px}
@@ -132,19 +136,39 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 .grid-hora{font-size:11px;letter-spacing:.04em;opacity:.6;text-align:left;border-left:1px solid var(--color-divider);padding-left:4px;font-variant-numeric:tabular-nums}
 .grid-aula{font-size:14px;padding:8px 8px 8px 0;text-align:right;line-height:1.2;border-right:1px solid var(--color-divider)}
 .grid-aula small{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.5}
-.grid-pista{position:relative;min-height:62px;background:
-  repeating-linear-gradient(90deg,transparent,transparent calc(100%/60 - 1px),color-mix(in srgb,var(--color-text) 7%,transparent) calc(100%/60 - 1px),color-mix(in srgb,var(--color-text) 7%,transparent) calc(100%/60))}
-.bloque{position:absolute;top:4px;bottom:4px;background:var(--color-accent-200);border-left:3px solid var(--color-accent);
-  padding:4px 6px;overflow:hidden;cursor:pointer;text-align:left;font:inherit;font-size:12px;line-height:1.3;border-radius:1px;
-  border-top:0;border-right:0;border-bottom:0;display:flex;flex-direction:column;justify-content:center;gap:1px}
-.bloque:hover{background:var(--color-accent-300);z-index:3;box-shadow:var(--shadow-md)}
-.bloque.cruce{background:var(--color-accent-2-200);border-left-color:var(--color-accent-2-600)}
-.bloque.propuesto{background:var(--color-accent-100);border-left-style:dashed}
-.bloque.evento{background:var(--color-neutral-200);border-left-color:var(--color-text);border-left-style:double;border-left-width:5px}
-.bloque .marca-ev{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;opacity:.55}
-.bloque b{font-family:var(--font-heading);font-weight:600;font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bloque .hora{font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bloque .doc{font-size:12px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grid-pista{position:relative;min-height:62px}
+.franjas{position:absolute;inset:0;display:flex;pointer-events:none}
+.franja{height:100%}
+.franja.m{background:color-mix(in srgb,var(--color-neutral-700) 7%,transparent)}
+.franja.t{background:color-mix(in srgb,var(--color-accent) 9%,transparent)}
+.franja.n{background:color-mix(in srgb,var(--color-accent-2) 7%,transparent)}
+.franja+.franja{border-left:1px solid color-mix(in srgb,var(--color-text) 22%,transparent)}
+.cab-franjas{display:flex;margin-bottom:2px}
+.cab-franja{padding:7px 10px 6px;border-top:3px solid var(--color-neutral-500)}
+.cab-franja.t{border-top-color:var(--color-accent)}
+.cab-franja.n{border-top-color:var(--color-accent-2-600)}
+.cab-franja+.cab-franja{border-left:1px solid color-mix(in srgb,var(--color-text) 22%,transparent)}
+.cab-franja b{font-family:var(--font-heading);font-weight:400;font-size:17px;display:block;line-height:1.1;letter-spacing:.005em}
+.cab-franja small{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;opacity:.5}
+.linea-cifras{font-size:13px;opacity:.7;margin:0 0 14px}
+.linea-cifras b{font-weight:600;opacity:1}
+.bloque{position:absolute;top:5px;bottom:5px;background:#fdfdfd;border-left:3px solid var(--color-neutral-500);
+  padding:6px 9px;overflow:hidden;cursor:pointer;text-align:left;font:inherit;line-height:1.35;border-radius:2px;
+  border-top:0;border-right:0;border-bottom:0;display:flex;flex-direction:column;justify-content:center;gap:2px;
+  box-shadow:0 1px 2px color-mix(in srgb,#2d2b2b 8%,transparent)}
+.bloque:hover{z-index:3;box-shadow:var(--shadow-md);background:#fff}
+.bloque.turno-m{border-left-color:var(--color-neutral-600)}
+.bloque.turno-t{border-left-color:var(--color-accent)}
+.bloque.turno-n{border-left-color:var(--color-accent-2-600)}
+.bloque.cruce{background:var(--color-accent-2-600);border-left-color:var(--color-accent-2-900);border-left-width:5px}
+.bloque.cruce b,.bloque.cruce .hora,.bloque.cruce .doc,.bloque.cruce .marca-ev{color:var(--color-bg);opacity:1}
+.bloque.cruce .hora,.bloque.cruce .doc{opacity:.82}
+.bloque.propuesto{border-left-style:dashed;background:#fff}
+.bloque.evento{background:var(--color-neutral-100);border-left-color:var(--color-text);border-left-style:double;border-left-width:6px}
+.bloque .marca-ev{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;opacity:.5}
+.bloque b{font-weight:400;font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.005em}
+.bloque .hora{font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bloque .doc{display:none}
 
 /* --- panel lateral --- */
 .velo{position:fixed;inset:0;background:color-mix(in srgb,#201e1d 38%,transparent);opacity:0;pointer-events:none;transition:opacity .18s;z-index:50}
@@ -227,6 +251,14 @@ var AREAS = ["Académica","Comercial","Marketing","Administración","Finanzas",
 var D = JSON.parse(document.getElementById('datos').textContent);
 var DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 var TURNOS = ['Mañana','Tarde','Noche'];
+/* Límites operativos acordados con Dirección Académica. Noche admite inicios
+   internos distintos (17:50 carrera y MKT, 18:30 GT15); la banda los cubre a todos. */
+var FRANJAS = [
+  {t:'Mañana', ini:'08:00', fin:'13:00', clave:'m'},
+  {t:'Tarde',  ini:'13:00', fin:'18:00', clave:'t'},
+  {t:'Noche',  ini:'18:00', fin:'22:30', clave:'n'}
+];
+var DIA_INI = '08:00', DIA_FIN = '22:30';
 var AFORO = D.aforoEstandar || 23;
 var LS = 'chiolecca.ambientes.';
 
@@ -261,6 +293,7 @@ function min(h){ var s=hora(h); if(!s) return NaN; var p=s.split(':'); return (+
 function valida(a,b){ return !isNaN(a) && !isNaN(b); }
 function hhmm(m){ var h=Math.floor(m/60), q=m%60; return (h<10?'0':'')+h+':'+(q<10?'0':'')+q; }
 function turnoDe(m){ return m<13*60 ? 'Mañana' : (m<18*60 ? 'Tarde' : 'Noche'); }
+function pct(m){ return (m - min(DIA_INI)) / (min(DIA_FIN) - min(DIA_INI)) * 100; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function el(id){ return document.getElementById(id); }
 
@@ -665,17 +698,19 @@ function vPanorama(){
     kpi(pendientes().length, 'pendientes', 'propuestas sin aprobar') +
   '</div>';
   g += '<h2 class="titulo">Mapa de calor de la semana</h2>';
-  g += '<p class="entrada">Cada fila es un ambiente y cada columna un turno: <strong>M</strong> mañana, <strong>T</strong> tarde, <strong>N</strong> noche. La intensidad del cian es la parte del turno que está ocupada; el magenta marca un cruce sin resolver. Haz clic en una celda para abrir ese día en la grilla.</p>';
+  g += '<p class="entrada">Cada fila es un ambiente y cada columna un turno: <strong>M</strong> mañana (08:00–13:00), <strong>T</strong> tarde (13:00–18:00), <strong>N</strong> noche (18:00–22:30). Los filetes verticales separan los días. La intensidad del cian es la parte del turno que está ocupada; el magenta marca un cruce sin resolver. Haz clic en una celda para abrir ese día en la grilla.</p>';
 
   g += '<div class="heat-scroll"><div class="heat">';
   g += '<div class="heat-cab"><div></div>' + DIAS.map(function(d){ return '<div class="heat-dia">'+d.slice(0,3)+'</div>'; }).join('') + '</div>';
-  g += '<div class="heat-cab"><div></div>' + DIAS.map(function(){ return TURNOS.map(function(t){ return '<div class="heat-turno">'+t[0]+'</div>'; }).join(''); }).join('') + '</div>';
+  g += '<div class="heat-cab"><div></div>' + DIAS.map(function(){
+    return TURNOS.map(function(t,k){ return '<div class="heat-turno'+(k===0?' dia-ini':'')+'">'+t[0]+'</div>'; }).join('');
+  }).join('') + '</div>';
 
   var cru = idsEnCruce(act);
   D.aulas.forEach(function(a){
     g += '<div class="heat-fila"><div class="heat-aula">'+esc(a.aula)+'</div>';
     DIAS.forEach(function(d){
-      TURNOS.forEach(function(t){
+      TURNOS.forEach(function(t,k){
         var bs = act.filter(function(p){ return p.aula===a.aula && p.dia===d && p.turno===t; });
         var mins = bs.reduce(function(s,p){ return valida(min(p.ini),min(p.fin)) ? s + (min(p.fin)-min(p.ini)) : s; }, 0);
         var f = Math.min(1, mins/270);
@@ -683,7 +718,7 @@ function vPanorama(){
         var bg = hayCruce ? 'var(--color-accent-2-500)'
                : (f===0 ? 'var(--color-neutral-200)' : 'color-mix(in srgb, var(--color-accent) '+Math.round(18+f*82)+'%, var(--color-neutral-100))');
         var col = (f>0.45 || hayCruce) ? 'var(--color-bg)' : 'var(--color-text)';
-        g += '<button class="heat-celda" style="background:'+bg+';color:'+col+'" data-dia="'+d+'" title="'+esc(a.aula+' · '+d+' '+t+' — '+bs.length+' dictado(s), '+Math.round(mins/60*10)/10+' h')+'">'+(bs.length?bs.length:'')+'</button>';
+        g += '<button class="heat-celda'+(k===0?' dia-ini':'')+'" style="background:'+bg+';color:'+col+'" data-dia="'+d+'" title="'+esc(a.aula+' · '+d+' '+t+' — '+bs.length+' dictado(s), '+Math.round(mins/60*10)/10+' h')+'">'+(bs.length?bs.length:'')+'</button>';
       });
     });
     g += '</div>';
@@ -702,45 +737,80 @@ function kpi(n,l,d,alerta){
 }
 
 function vGrilla(){
-  var act = activos().filter(function(p){ return p.dia===S.dia && coincide(p); });
-  var cru = idsEnCruce(activos());
-  var t0 = 7*60, t1 = 23*60;
-  var conHora = act.filter(function(p){ return valida(min(p.ini),min(p.fin)); });
-  if(conHora.length){
-    t0 = Math.min.apply(null, conHora.map(function(p){return min(p.ini);}));
-    t1 = Math.max.apply(null, conHora.map(function(p){return min(p.fin);}));
-    t0 = Math.floor(t0/60)*60; t1 = Math.ceil(t1/60)*60;
+  var todosAct = activos();
+  var delDia = todosAct.filter(function(p){ return p.dia===S.dia; });
+  var act = delDia.filter(coincide).filter(function(p){
+    return S.turno==='Todos' || p.turno===S.turno;
+  });
+  var cru = idsEnCruce(todosAct);
+
+  /* Eje fijo 08:00–22:30, o acotado al turno elegido, para que las bandas cuadren siempre. */
+  var t0 = min(DIA_INI), t1 = min(DIA_FIN);
+  var franjas = FRANJAS;
+  if(S.turno!=='Todos'){
+    franjas = FRANJAS.filter(function(f){ return f.t===S.turno; });
+    t0 = min(franjas[0].ini); t1 = min(franjas[0].fin);
   }
   var span = t1 - t0;
-  var horas = []; for(var h=t0; h<=t1; h+=60) horas.push(h);
+  function px(m){ return (m - t0)/span*100; }
 
-  var g = '<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap">' +
-    '<div><h2 class="titulo">Grilla del día</h2>' +
-    '<p class="entrada" style="margin-bottom:0">Ambientes en filas, horas en columnas. Haz clic en un bloque para ver su ficha o reprogramarlo.</p></div></div>';
-  g += '<div class="barra-filtros" style="margin-top:18px">' + segDias() + buscador() + '</div>';
+  var docentes = {}; delDia.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
+  var aulasUso = {}; delDia.forEach(function(p){ if(p.aula) aulasUso[p.aula]=1; });
+  var nCruce = delDia.filter(function(p){ return cru[p.id]; }).length;
+
+  var g = '<h2 class="titulo">Grilla del día</h2>' +
+    '<p class="entrada" style="margin-bottom:14px">Ambientes en filas, horas en columnas. Las bandas separan mañana, tarde y noche. Haz clic en un bloque para ver su ficha o reprogramarlo.</p>';
+  g += '<div class="barra-filtros">' + segDias() + segTurnos() + buscador() + '</div>';
+  g += '<p class="linea-cifras"><b>'+delDia.length+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
+       Object.keys(docentes).length+'</b> docentes · <b'+(nCruce?' style="color:var(--color-accent-2)"':'')+'>'+nCruce+'</b> con cruce</p>';
 
   var cols = 'grid-template-columns:78px 1fr';
-  g += '<div class="grid-scroll"><div class="grid-cuerpo">';
-  g += '<div class="grid-horas" style="'+cols+'"><div></div><div style="display:grid;grid-template-columns:repeat('+(horas.length-1)+',1fr)">' +
-       horas.slice(0,-1).map(function(h){ return '<div class="grid-hora">'+hhmm(h)+'</div>'; }).join('') + '</div></div>';
 
-  var filas = D.aulas.filter(function(a){ return activos().some(function(p){return p.aula===a.aula;}); });
-  activos().forEach(function(p){
+  /* Cabecera de franjas */
+  g += '<div class="grid-scroll"><div class="grid-cuerpo">';
+  g += '<div style="display:grid;'+cols+'"><div></div><div class="cab-franjas">' +
+    franjas.map(function(f){
+      var n = delDia.filter(function(p){ return p.turno===f.t; }).length;
+      var w = (min(f.fin)-min(f.ini))/span*100;
+      return '<div class="cab-franja '+f.clave+'" style="width:'+w.toFixed(3)+'%">' +
+        '<b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+n+' dictados</small></div>';
+    }).join('') + '</div></div>';
+
+  /* Eje de horas */
+  var horas = []; for(var h=Math.ceil(t0/60)*60; h<=t1; h+=60) horas.push(h);
+  g += '<div class="grid-horas" style="'+cols+'"><div></div><div style="position:relative;height:16px">' +
+    horas.map(function(h){
+      return '<div class="grid-hora" style="position:absolute;left:'+px(h).toFixed(3)+'%">'+hhmm(h)+'</div>';
+    }).join('') + '</div></div>';
+
+  var filas = D.aulas.filter(function(a){ return todosAct.some(function(p){return p.aula===a.aula;}); });
+  todosAct.forEach(function(p){
     if(p.aula && !filas.some(function(a){return a.aula===p.aula;})) filas.push({aula:p.aula, tipo:'Sin ambiente físico', aforo:'—'});
   });
 
+  var fondo = franjas.map(function(f){
+    var w = (min(f.fin)-min(f.ini))/span*100;
+    return '<div class="franja '+f.clave+'" style="width:'+w.toFixed(3)+'%"></div>';
+  }).join('');
+
   filas.forEach(function(a){
-    var bs = act.filter(function(p){ return p.aula===a.aula; });
+    var bs = act.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
     g += '<div class="grid-fila" style="'+cols+'">';
-    g += '<div class="grid-aula">'+esc(a.aula)+'<small>aforo '+esc(a.aforo)+'</small></div>';
-    g += '<div class="grid-pista">';
+    g += '<div class="grid-aula">'+esc(a.aula)+'<small>'+esc(a.tipo==='Sin ambiente físico'?'sin ambiente':a.tipo)+'</small></div>';
+    g += '<div class="grid-pista"><div class="franjas">'+fondo+'</div>';
     bs.forEach(function(p){
-      if(!valida(min(p.ini),min(p.fin))) return;
-      var izq = (min(p.ini)-t0)/span*100, an = (min(p.fin)-min(p.ini))/span*100;
-      var cls = 'bloque' + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
+      var izq = px(min(p.ini)), an = (min(p.fin)-min(p.ini))/span*100;
+      if(izq >= 100 || izq + an <= 0) return;
+      if(izq < 0){ an += izq; izq = 0; }
+      if(izq + an > 100) an = 100 - izq;
+      var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
+      var cls = 'bloque' + turnoCls + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
+      var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
       g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%" title="'+esc(p.seccion+' · '+p.curso+' · '+p.docente+' · '+p.horario+' · '+p.alumnos+' alumnos')+'">' +
+           (cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
            (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
-           '<b>'+esc(p.seccion||p.curso)+'</b><span class="hora">'+esc(p.horario)+' · '+esc(p.alumnos)+' al.</span><span class="doc">'+esc(p.docente)+'</span></button>';
+           '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +
+           '<span class="hora">'+esc(p.horario)+' · '+esc(p.seccion)+' · '+esc(apellido)+'</span></button>';
     });
     g += '</div></div>';
   });
@@ -750,6 +820,12 @@ function vGrilla(){
   document.querySelectorAll('.bloque').forEach(function(b){
     b.onclick = function(){ var p = activos().filter(function(x){return x.id===b.dataset.id;})[0]; if(p) abrirDictado(p); };
   });
+}
+
+function segTurnos(){
+  return '<div class="seg">' + ['Todos'].concat(TURNOS).map(function(x){
+    return '<label class="seg-opt"><input type="radio" name="turno"'+(S.turno===x?' checked':'')+' data-turno="'+x+'">'+x+'</label>';
+  }).join('') + '</div>';
 }
 
 function vAmbientes(){
@@ -1121,7 +1197,32 @@ function vGuia(){
     ['El registro manda','Este portal ayuda a decidir, pero el registro oficial sigue siendo el libro de Auditoría de Aulas. Lo aprobado aquí se traslada allá.']
   ];
   var g = '<h2 class="titulo">Cómo usar la plataforma</h2>' +
-    '<p class="entrada">Doce pasos. Si alguien nuevo entra al equipo, esto es lo único que necesita leer.</p>';
+    '<p class="entrada">Quién hace qué, y luego doce pasos. Si alguien nuevo entra al equipo, esto es lo único que necesita leer.</p>';
+
+  /* Reparto de responsabilidades acordado por Dirección Académica */
+  var roles = [
+    ['Orientación al Alumno',
+     'Carga los eventos y los nuevos inicios de curso.',
+     'Son quienes primero se enteran de una charla, un examen o el arranque de una campaña. Registran la solicitud el mismo día que la reciben, con el área que la pide.'],
+    ['Leslie Marín',
+     'Mantiene las fechas de término de PEC, talleres y bootcamp.',
+     'Revisa cada lunes qué dictados terminan esa semana y propone darlos de baja. Un aula que figura ocupada por un curso que ya acabó es un aula perdida.'],
+    ['Giuseppe Pacheco · Dirección Académica',
+     'Aprueba o rechaza toda propuesta.',
+     'Ninguna reprogramación entra en vigencia sin su visto bueno. También resuelve los cruces y las excepciones de aforo.']
+  ];
+  g += '<div class="regla-fina" style="margin:0 0 20px"></div>';
+  g += '<h3 style="font-size:20px;margin-bottom:4px">Quién mantiene la plataforma al día</h3>';
+  g += '<p style="font-size:14px;opacity:.72;max-width:70ch;margin:6px 0 18px">La plataforma registra quién propuso y quién aprobó, pero no puede decidir a quién le toca revisar. Este es el reparto acordado.</p>';
+  roles.forEach(function(r){
+    g += '<div style="display:grid;grid-template-columns:230px 1fr;gap:20px;padding:14px 0;border-bottom:1px solid color-mix(in srgb,var(--color-text) 8%,transparent)">' +
+      '<div><div style="font-family:var(--font-heading);font-size:16px">'+esc(r[0])+'</div></div>' +
+      '<div><div style="font-size:14.5px">'+esc(r[1])+'</div>' +
+      '<div style="font-size:13.5px;opacity:.68;margin-top:3px;max-width:66ch">'+esc(r[2])+'</div></div></div>';
+  });
+  g += '<p style="font-size:13px;opacity:.6;margin:14px 0 30px;max-width:70ch">Si alguien no puede cubrir su parte una semana, se avisa a Dirección Académica antes, no después. El costo de una vacante silenciosa es un aula bloqueada por un curso fantasma.</p>';
+  g += '<div class="regla-gruesa" style="margin:0 0 24px;height:3px"></div>';
+  g += '<h3 style="font-size:20px;margin-bottom:10px">Los doce pasos</h3>';
   pasos.forEach(function(p,i){
     g += '<div style="display:grid;grid-template-columns:52px 1fr;gap:18px;padding:16px 0;border-bottom:1px solid color-mix(in srgb,var(--color-text) 8%,transparent)">' +
       '<div style="font-family:var(--font-heading);font-weight:600;font-size:26px;color:var(--color-accent)">'+(i+1)+'</div>' +
@@ -1147,6 +1248,9 @@ function coincide(p){
 function enlazarFiltros(){
   document.querySelectorAll('[data-dia]').forEach(function(r){
     r.onchange = function(){ S.dia = r.dataset.dia; render(); };
+  });
+  document.querySelectorAll('[data-turno]').forEach(function(r){
+    r.onchange = function(){ S.turno = r.dataset.turno; render(); };
   });
   var q = el('q');
   if(q) q.oninput = function(){

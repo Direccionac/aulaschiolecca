@@ -235,7 +235,19 @@ var S = {
 
 /* ---------- utilidades ---------- */
 function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function min(h){ if(!h) return 0; var p=String(h).split(':'); return (+p[0])*60+(+p[1]||0); }
+/* Acepta "13:00". Si llega una fecha completa (Google convierte horas en fechas de 1899),
+   rescata la hora. Si no reconoce nada, devuelve '' y el cambio de horario se ignora. */
+function hora(v){
+  if(!v) return '';
+  var s = String(v).trim();
+  var m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if(m) return (m[1].length===1?'0':'')+m[1]+':'+m[2];
+  m = s.match(/\b(\d{1,2}):(\d{2}):\d{2}\b/);
+  if(m) return (m[1].length===1?'0':'')+m[1]+':'+m[2];
+  return '';
+}
+function min(h){ var s=hora(h); if(!s) return NaN; var p=s.split(':'); return (+p[0])*60+(+p[1]); }
+function valida(a,b){ return !isNaN(a) && !isNaN(b); }
 function hhmm(m){ var h=Math.floor(m/60), q=m%60; return (h<10?'0':'')+h+':'+(q<10?'0':'')+q; }
 function turnoDe(m){ return m<13*60 ? 'Mañana' : (m<18*60 ? 'Tarde' : 'Noche'); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -253,7 +265,8 @@ function vigente(){
     var q = {}; for(var k in p) q[k]=p[k];
     if(c.aula) q.aula = c.aula;
     if(c.dia)  q.dia  = c.dia;
-    if(c.ini)  { q.ini = c.ini; q.fin = c.fin; q.horario = c.ini+'-'+c.fin; q.turno = turnoDe(min(c.ini)); }
+    var ni = hora(c.ini), nf = hora(c.fin);
+    if(ni && nf){ q.ini = ni; q.fin = nf; q.horario = ni+'-'+nf; q.turno = turnoDe(min(ni)); }
     if(c.accion==='desactivar') q.activo = 'NO';
     if(c.accion==='activar')    q.activo = 'SÍ';
     q.movido = true;
@@ -276,6 +289,7 @@ function cruces(lista){
     var arr = porLlave[k].slice().sort(function(a,b){return min(a.ini)-min(b.ini);});
     for(var i=0;i<arr.length-1;i++){
       for(var j=i+1;j<arr.length;j++){
+        if(!valida(min(arr[i].ini),min(arr[i].fin)) || !valida(min(arr[j].ini),min(arr[j].fin))) continue;
         if(min(arr[j].ini) < min(arr[i].fin) && min(arr[i].ini) < min(arr[j].fin)){
           res.push([arr[i],arr[j]]);
         }
@@ -401,14 +415,20 @@ function abrirDictado(p){
   function validar(){
     var prop = {aula:el('rAula').value, dia:el('rDia').value, ini:el('rIni').value, fin:el('rFin').value};
     var caja = el('rValida'), msg = [];
+    if(!valida(min(prop.ini), min(prop.fin))){
+      caja.innerHTML = '<div class="aviso">Escribe una hora de inicio y una de fin válidas.</div>';
+      return prop;
+    }
     if(min(prop.fin) <= min(prop.ini)) msg.push('La hora de fin debe ser posterior al inicio.');
     var choques = activos().filter(function(o){
       return o.id!==p.id && o.dia===prop.dia && o.aula===prop.aula &&
+             valida(min(o.ini),min(o.fin)) &&
              min(o.ini) < min(prop.fin) && min(prop.ini) < min(o.fin);
     });
     choques.forEach(function(o){ msg.push('Choca con '+o.seccion+' ('+o.horario+') en '+prop.aula+'.'); });
     var mismoDocente = activos().filter(function(o){
       return o.id!==p.id && o.docente===p.docente && o.dia===prop.dia &&
+             valida(min(o.ini),min(o.fin)) &&
              min(o.ini) < min(prop.fin) && min(prop.ini) < min(o.fin);
     });
     mismoDocente.forEach(function(o){ msg.push(p.docente+' ya dicta '+o.seccion+' a esa hora.'); });
@@ -484,7 +504,7 @@ function vPanorama(){
     DIAS.forEach(function(d){
       TURNOS.forEach(function(t){
         var bs = act.filter(function(p){ return p.aula===a.aula && p.dia===d && p.turno===t; });
-        var mins = bs.reduce(function(s,p){ return s + (min(p.fin)-min(p.ini)); }, 0);
+        var mins = bs.reduce(function(s,p){ return valida(min(p.ini),min(p.fin)) ? s + (min(p.fin)-min(p.ini)) : s; }, 0);
         var f = Math.min(1, mins/270);
         var hayCruce = bs.some(function(p){ return cru[p.id]; });
         var bg = hayCruce ? 'var(--color-accent-2-500)'
@@ -512,9 +532,10 @@ function vGrilla(){
   var act = activos().filter(function(p){ return p.dia===S.dia && coincide(p); });
   var cru = idsEnCruce(activos());
   var t0 = 7*60, t1 = 23*60;
-  if(act.length){
-    t0 = Math.min.apply(null, act.map(function(p){return min(p.ini);}));
-    t1 = Math.max.apply(null, act.map(function(p){return min(p.fin);}));
+  var conHora = act.filter(function(p){ return valida(min(p.ini),min(p.fin)); });
+  if(conHora.length){
+    t0 = Math.min.apply(null, conHora.map(function(p){return min(p.ini);}));
+    t1 = Math.max.apply(null, conHora.map(function(p){return min(p.fin);}));
     t0 = Math.floor(t0/60)*60; t1 = Math.ceil(t1/60)*60;
   }
   var span = t1 - t0;
@@ -541,6 +562,7 @@ function vGrilla(){
     g += '<div class="grid-aula">'+esc(a.aula)+'<small>aforo '+esc(a.aforo)+'</small></div>';
     g += '<div class="grid-pista">';
     bs.forEach(function(p){
+      if(!valida(min(p.ini),min(p.fin))) return;
       var izq = (min(p.ini)-t0)/span*100, an = (min(p.fin)-min(p.ini))/span*100;
       var cls = 'bloque' + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'');
       g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%" title="'+esc(p.seccion+' · '+p.curso+' · '+p.docente+' · '+p.horario+' · '+p.alumnos+' alumnos')+'">' +
@@ -576,7 +598,7 @@ function vAmbientes(){
 }
 
 function huecos(aula, dia, act, desde, hasta, dur){
-  var bs = act.filter(function(p){ return p.aula===aula && p.dia===dia; })
+  var bs = act.filter(function(p){ return p.aula===aula && p.dia===dia && valida(min(p.ini),min(p.fin)); })
               .sort(function(x,y){ return min(x.ini)-min(y.ini); });
   var libres = [], t = desde;
   bs.forEach(function(p){

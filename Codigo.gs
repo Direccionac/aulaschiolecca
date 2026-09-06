@@ -18,16 +18,18 @@
 
 var HOJA = 'Cambios';
 var COLS = ['cid','ts','por','correo','did','accion','aula','dia','ini','fin',
-            'motivo','resumen','estado','resueltoPor','tsResuelto'];
+            'motivo','resumen','estado','resueltoPor','tsResuelto',
+            'titulo','docente','alumnos','area'];
 
 function preparar() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var h = ss.getSheetByName(HOJA) || ss.insertSheet(HOJA);
-  if (h.getLastRow() === 0) {
-    h.appendRow(COLS);
-    h.getRange(1, 1, 1, COLS.length).setFontWeight('bold');
-    h.setFrozenRows(1);
-  }
+  // Escribe (o repara) la fila de encabezados. Si el archivo venía de una versión
+  // anterior con menos columnas, esto la extiende sin tocar los datos existentes.
+  h.getRange(1, 1, 1, COLS.length).setValues([COLS]).setFontWeight('bold');
+  h.setFrozenRows(1);
+  // Sin esto, Google convierte "13:00" en una fecha de 1899 y el portal ya no la entiende.
+  h.getRange(1, 1, h.getMaxRows(), COLS.length).setNumberFormat('@');
   return 'Listo. Ahora define CLAVE_ADMIN y CLAVE_EDITOR en las propiedades del script.';
 }
 
@@ -64,7 +66,9 @@ function doPost(e) {
         if (k === 'estado') return 'pendiente';
         return c[k] != null ? c[k] : '';
       });
-      hoja().appendRow(fila);
+      var hj = hoja();
+      hj.appendRow(fila);
+      hj.getRange(hj.getLastRow(), 1, 1, COLS.length).setNumberFormat('@');
 
     } else if (p.accion === 'resolver') {
       if (!esAdmin) return json({ ok: false, error: 'Solo el administrador aprueba o rechaza.' });
@@ -111,9 +115,21 @@ function leer() {
   var datos = h.getRange(2, 1, h.getLastRow() - 1, COLS.length).getValues();
   return datos.map(function (r) {
     var o = {};
-    COLS.forEach(function (k, i) { o[k] = r[i] === '' ? '' : String(r[i]); });
+    COLS.forEach(function (k, i) { o[k] = normaliza(k, r[i]); });
     return o;
   }).filter(function (o) { return o.cid; });
+}
+
+/** Devuelve siempre texto. Si Google guardó una hora como fecha, la recupera como HH:mm. */
+function normaliza(campo, v) {
+  if (v === '' || v === null || v === undefined) return '';
+  if (v instanceof Date) {
+    if (campo === 'ini' || campo === 'fin') {
+      return Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm');
+    }
+    return v.toISOString();
+  }
+  return String(v);
 }
 
 function json(o) {

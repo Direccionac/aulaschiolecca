@@ -140,6 +140,8 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 .bloque:hover{background:var(--color-accent-300);z-index:3;box-shadow:var(--shadow-md)}
 .bloque.cruce{background:var(--color-accent-2-200);border-left-color:var(--color-accent-2-600)}
 .bloque.propuesto{background:var(--color-accent-100);border-left-style:dashed}
+.bloque.evento{background:var(--color-neutral-200);border-left-color:var(--color-text);border-left-style:double;border-left-width:5px}
+.bloque .marca-ev{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;opacity:.55}
 .bloque b{font-family:var(--font-heading);font-weight:600;font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bloque .hora{font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bloque .doc{font-size:12px;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -216,6 +218,10 @@ var EDITORES = [
   {correo:"orientacionalalumno@chio-lecca.edu.pe", nombre:"Orientación al Alumno", rol:"editor"}
 ];
 
+/* Áreas que pueden solicitar un ambiente. Edita la lista si cambia el organigrama. */
+var AREAS = ["Académica","Comercial","Marketing","Administración","Finanzas",
+             "Gerencia General","Orientación al Alumno","Recursos Humanos","Otra"];
+
 /* ══════════════════════════════════════════════════════════════ */
 
 var D = JSON.parse(document.getElementById('datos').textContent);
@@ -234,6 +240,11 @@ var S = {
 };
 
 /* ---------- utilidades ---------- */
+/* Compara sin tildes: buscar "carrion" debe encontrar a CARRIÓN. */
+function norm(s){
+  return String(s==null?'':s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
 function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 /* Acepta "13:00". Si llega una fecha completa (Google convierte horas en fechas de 1899),
    rescata la hora. Si no reconoce nada, devuelve '' y el cambio de horario se ignora. */
@@ -271,6 +282,32 @@ function vigente(){
     if(c.accion==='activar')    q.activo = 'SÍ';
     q.movido = true;
     return q;
+  }).concat(eventos());
+}
+
+/* Un evento aprobado se comporta como un dictado más: ocupa ambiente,
+   entra en los cruces, cuenta en las horas de uso y se puede dar de baja. */
+function eventos(){
+  var bajas = {}, movs = {};
+  S.cambios.forEach(function(c){
+    if(c.estado!=='aprobado') return;
+    if(c.accion==='desactivar') bajas[c.did] = 1;
+    if(c.accion==='mover') movs[c.did] = c;   // un evento también se puede reubicar
+  });
+  return S.cambios.filter(function(c){
+    return c.accion==='evento' && c.estado==='aprobado' && !bajas['ev-'+c.cid];
+  }).map(function(c){
+    var m = movs['ev-'+c.cid] || {};
+    var aula = m.aula || c.aula, dia = m.dia || c.dia;
+    var ini = hora(m.ini) || hora(c.ini), fin = hora(m.fin) || hora(c.fin);
+    var amb = D.aulas.filter(function(a){return a.aula===aula;})[0] || {};
+    return {
+      id:'ev-'+c.cid, dia:dia, turno:turnoDe(min(ini)), tipo:'EVENTO',
+      aula:aula, curso:c.titulo||'Evento', seccion:c.titulo||'Evento',
+      docente:c.docente||c.por||'', horario:ini+'-'+fin, activo:'SÍ', area:c.area||'Otra',
+      nota:c.motivo||'', ini:ini, fin:fin, tipoAula:amb.tipo||'', aforo:amb.aforo||'—',
+      cruce:'', programa:c.area||'Otra', grupo:'', alumnos:c.alumnos||'', estado:'OK', esEvento:true
+    };
   });
 }
 function activos(){ return vigente().filter(function(p){return p.activo==='SÍ';}); }
@@ -382,17 +419,17 @@ function abrirDictado(p){
   if(aulas.indexOf(p.aula)<0) aulas.unshift(p.aula);
   var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">'+esc(p.programa)+' · '+esc(p.tipo)+'</div>' +
           '<h2 style="font-size:27px;margin-top:4px">'+esc(p.seccion||p.curso)+'</h2>' +
-          '<div style="opacity:.7;font-size:14px">'+esc(p.curso)+'</div></div><div class="panel-cuerpo">';
+          '<div style="opacity:.7;font-size:14px">'+esc(p.esEvento ? 'Evento solicitado por '+(p.area||'—') : p.curso)+'</div></div><div class="panel-cuerpo">';
   g += '<dl>' +
     fila('Ambiente', p.aula+' · '+p.tipoAula) +
     fila('Día y hora', p.dia+' · '+p.horario+' ('+p.turno+')') +
-    fila('Docente', p.docente) +
+    (p.esEvento ? fila('Área solicitante', p.area) : '') +
+    fila(p.esEvento ? 'Responsable' : 'Docente', p.docente) +
     fila('Grupo en Q10', p.grupo) +
-    fila('Alumnos', p.alumnos+' de '+p.aforo+' de aforo') +
-    fila('Vigencia', (p.ini2||'')) +
+    fila(p.esEvento ? 'Asistentes' : 'Alumnos', p.alumnos+' de '+p.aforo+' de aforo') +
     '</dl>';
   if(enCruce) g += '<div class="aviso"><b>Cruce de ambiente sin resolver.</b> Otro dictado ocupa '+esc(p.aula)+' a la misma hora el '+esc(p.dia)+'.</div>';
-  if(sobreAforo(p)) g += '<div class="aviso"><b>Sobre aforo.</b> '+esc(p.alumnos)+' alumnos en un ambiente de '+esc(p.aforo)+'.</div>';
+  if(sobreAforo(p)) g += '<div class="aviso"><b>Sobre aforo.</b> '+esc(p.alumnos)+(p.esEvento?' asistentes':' alumnos')+' en un ambiente de '+esc(p.aforo)+'.</div>';
   if(p.nota) g += '<div class="aviso ok">'+esc(p.nota)+'</div>';
 
   g += '<div class="regla-fina" style="margin:22px 0 16px"></div>';
@@ -455,6 +492,141 @@ function abrirDictado(p){
               resumen: p.seccion+' — dar de baja el dictado del '+p.dia+' '+p.horario});
   };
 }
+
+/* ---------- colocar algo en una ventana libre ---------- */
+function abrirColocar(aula, dia, desde, hasta, dur){
+  var amb = D.aulas.filter(function(a){return a.aula===aula;})[0] || {};
+  var fin = Math.min(hasta, desde + (isNaN(dur)?90:dur));
+  var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">'+esc(dia)+' · ventana libre '+hhmm(desde)+' – '+hhmm(hasta)+'</div>' +
+    '<h2 style="font-size:27px;margin-top:4px">Ambiente '+esc(aula)+'</h2>' +
+    '<div style="opacity:.7;font-size:14px">'+esc(amb.tipo||'')+' · aforo '+esc(amb.aforo||'—')+'</div></div><div class="panel-cuerpo">';
+
+  g += '<div class="rejilla-campos" style="margin-bottom:16px">' +
+    '<div class="field"><label>Inicio</label><input class="input" id="cIni" type="time" value="'+hhmm(desde)+'"></div>' +
+    '<div class="field"><label>Fin</label><input class="input" id="cFin" type="time" value="'+hhmm(fin)+'"></div>' +
+    '</div>';
+
+  g += '<div class="seg" style="margin-bottom:16px">' +
+    '<label class="seg-opt"><input type="radio" name="modo" value="mover" checked>Mover una clase</label>' +
+    '<label class="seg-opt"><input type="radio" name="modo" value="evento">Crear un evento</label>' +
+    '</div>';
+
+  g += '<div id="cMover">' +
+    '<div class="field"><label>Busca el dictado por docente, sección o curso</label>' +
+    '<input class="input" id="cBusca" placeholder="Ej.: CARRIÓN, DM-3B-T, patronaje"></div>' +
+    '<div id="cLista" style="margin-top:10px"></div></div>';
+
+  g += '<div id="cEvento" class="oculto">' +
+    '<div class="field" style="margin-bottom:10px"><label>Nombre del evento</label>' +
+    '<input class="input" id="eTitulo" placeholder="Ej.: Charla de portafolio, examen de recuperación"></div>' +
+    '<div class="rejilla-campos">' +
+    '<div class="field"><label>Área que lo solicita</label><select class="input" id="eArea">' +
+      AREAS.map(function(a){ return '<option'+(a==='Académica'?' selected':'')+'>'+esc(a)+'</option>'; }).join('') +
+      '</select></div>' +
+    '<div class="field"><label>Responsable</label><input class="input" id="eDocente" placeholder="Quién lo dirige"></div>' +
+    '</div>' +
+    '<div class="rejilla-campos" style="margin-top:10px">' +
+    '<div class="field"><label>Asistentes</label><input class="input" id="eAlumnos" type="number" min="1" value="20"></div>' +
+    '<div class="field"><label>&nbsp;</label><div style="font-size:12px;opacity:.6;padding-top:9px">El área queda en el historial y en el reporte de uso.</div></div>' +
+    '</div>' +
+    '<div class="field" style="margin-top:10px"><label>Motivo o detalle</label>' +
+    '<input class="input" id="eMotivo" placeholder="Queda en el historial"></div>' +
+    '<div id="eValida" style="margin-top:12px"></div>' +
+    '<button class="btn btn-primary btn-block" id="eEnviar">Proponer el evento</button></div>';
+  g += '</div>';
+  abrirPanel(g);
+
+  function rango(){ return {ini: el('cIni').value, fin: el('cFin').value}; }
+  function choques(r, excluirId){
+    var out = [];
+    if(!valida(min(r.ini), min(r.fin))) return ['Escribe una hora de inicio y otra de fin válidas.'];
+    if(min(r.fin) <= min(r.ini)) return ['La hora de fin debe ser posterior al inicio.'];
+    activos().forEach(function(o){
+      if(o.id===excluirId || o.dia!==dia || o.aula!==aula) return;
+      if(!valida(min(o.ini), min(o.fin))) return;
+      if(min(o.ini) < min(r.fin) && min(r.ini) < min(o.fin)) out.push('Choca con '+o.seccion+' ('+o.horario+') en '+aula+'.');
+    });
+    return out;
+  }
+
+  function pintarLista(){
+    var q = el('cBusca').value.trim().toLowerCase();
+    if(q.length < 2){
+      el('cLista').innerHTML = '<p style="font-size:13px;opacity:.6">Escribe al menos dos letras.</p>';
+      return;
+    }
+    var r = rango();
+    var qn = norm(q);
+    var cands = activos().filter(function(p){
+      if(p.esEvento) return false;
+      return norm(p.docente+' '+p.seccion+' '+p.curso+' '+p.grupo).indexOf(qn) >= 0;
+    }).slice(0, 12);
+    if(!cands.length){ el('cLista').innerHTML = '<p style="font-size:13px;opacity:.6">Sin coincidencias.</p>'; return; }
+    el('cLista').innerHTML = cands.map(function(p){
+      var ch = choques(r, p.id);
+      var mismoDocente = activos().filter(function(o){
+        return o.id!==p.id && o.docente===p.docente && o.dia===dia && valida(min(o.ini),min(o.fin)) &&
+               min(o.ini) < min(r.fin) && min(r.ini) < min(o.fin);
+      });
+      mismoDocente.forEach(function(o){ ch.push(p.docente+' ya dicta '+o.seccion+' a esa hora.'); });
+      var n = parseInt(p.alumnos,10), af = parseInt(amb.aforo,10);
+      if(!isNaN(n) && !isNaN(af) && n > af) ch.push('Aforo: la sección trae '+n+' y el ambiente admite '+af+'.');
+      return '<div style="border-bottom:1px solid color-mix(in srgb,var(--color-text) 10%,transparent);padding:10px 0">' +
+        '<div style="font-family:var(--font-heading);font-weight:600">'+esc(p.seccion)+' <span style="font-weight:400;opacity:.6;font-size:13px">'+esc(p.curso)+'</span></div>' +
+        '<div style="font-size:13px;opacity:.75">'+esc(p.docente)+' · hoy en '+esc(p.aula)+' el '+esc(p.dia)+' '+esc(p.horario)+'</div>' +
+        (ch.length ? '<div class="aviso" style="margin:8px 0">'+ch.map(esc).join('<br>')+'</div>' : '<div class="aviso ok" style="margin:8px 0">Entra sin conflictos.</div>') +
+        '<button class="btn '+(ch.length?'btn-secondary':'btn-primary')+'" data-mov="'+esc(p.id)+'">'+(ch.length?'Proponer igual':'Proponer el traslado')+'</button>' +
+        '</div>';
+    }).join('');
+    document.querySelectorAll('[data-mov]').forEach(function(b){
+      b.onclick = function(){
+        var p = activos().filter(function(x){return x.id===b.dataset.mov;})[0];
+        var r2 = rango();
+        proponer({did:p.id, accion:'mover', aula:aula, dia:dia, ini:r2.ini, fin:r2.fin,
+                  motivo:'Reubicado desde el buscador de huecos',
+                  resumen: resumenCambio(p, {aula:aula, dia:dia, ini:r2.ini, fin:r2.fin})});
+      };
+    });
+  }
+
+  function validarEvento(){
+    var r = rango(), ch = choques(r, null);
+    var n = parseInt(el('eAlumnos').value,10), af = parseInt(amb.aforo,10);
+    if(!isNaN(n) && !isNaN(af) && n > af) ch.push('El ambiente admite '+af+' personas y esperas '+n+'.');
+    el('eValida').innerHTML = ch.length
+      ? '<div class="aviso">'+ch.map(esc).join('<br>')+'</div>'
+      : '<div class="aviso ok">El ambiente está libre en ese horario.</div>';
+  }
+
+  document.querySelectorAll('input[name="modo"]').forEach(function(r){
+    r.onchange = function(){
+      var ev = r.value==='evento';
+      el('cMover').classList.toggle('oculto', ev);
+      el('cEvento').classList.toggle('oculto', !ev);
+      if(ev) validarEvento(); else pintarLista();
+    };
+  });
+  el('cBusca').oninput = pintarLista;
+  ['cIni','cFin'].forEach(function(id){
+    el(id).onchange = function(){
+      if(el('cEvento').classList.contains('oculto')) pintarLista(); else validarEvento();
+    };
+  });
+  ['eAlumnos'].forEach(function(id){ el(id).oninput = validarEvento; });
+  el('eEnviar').onclick = function(){
+    var titulo = el('eTitulo').value.trim();
+    if(!titulo){ alert('Ponle un nombre al evento.'); return; }
+    var r = rango();
+    if(!valida(min(r.ini), min(r.fin)) || min(r.fin) <= min(r.ini)){ alert('Revisa las horas.'); return; }
+    var area = el('eArea').value;
+    proponer({accion:'evento', did:'', aula:aula, dia:dia, ini:r.ini, fin:r.fin,
+              titulo:titulo, docente:el('eDocente').value.trim(), alumnos:el('eAlumnos').value,
+              area:area, motivo:el('eMotivo').value.trim(),
+              resumen:'['+area+'] Evento «'+titulo+'» en '+aula+' el '+dia+' '+r.ini+'-'+r.fin});
+  };
+  pintarLista();
+}
+
 function fila(t,v){ return v ? '<dt>'+esc(t)+'</dt><dd>'+esc(v)+'</dd>' : ''; }
 function resumenCambio(p, n){
   var partes = [];
@@ -465,6 +637,7 @@ function resumenCambio(p, n){
 }
 function proponer(c){
   c.cid = uid(); c.ts = new Date().toISOString(); c.estado='pendiente';
+  if(!c.did) c.did = 'nuevo-'+c.cid;
   c.por = S.sesion ? S.sesion.nombre : '';
   enviar({accion:'proponer', cambio:c}, function(r){
     if(r.ok){ cerrarPanel(); S.tab='cambios'; render(); }
@@ -564,8 +737,9 @@ function vGrilla(){
     bs.forEach(function(p){
       if(!valida(min(p.ini),min(p.fin))) return;
       var izq = (min(p.ini)-t0)/span*100, an = (min(p.fin)-min(p.ini))/span*100;
-      var cls = 'bloque' + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'');
+      var cls = 'bloque' + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
       g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%" title="'+esc(p.seccion+' · '+p.curso+' · '+p.docente+' · '+p.horario+' · '+p.alumnos+' alumnos')+'">' +
+           (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
            '<b>'+esc(p.seccion||p.curso)+'</b><span class="hora">'+esc(p.horario)+' · '+esc(p.alumnos)+' al.</span><span class="doc">'+esc(p.docente)+'</span></button>';
     });
     g += '</div></div>';
@@ -594,6 +768,37 @@ function vAmbientes(){
       '<td style="font-size:13px;opacity:.75">'+esc(a.obs||'')+'</td></tr>';
   });
   g += '</tbody></table>';
+
+  /* Uso por área solicitante */
+  var porArea = {};
+  act.forEach(function(p){
+    var k = p.esEvento ? (p.area||'Otra') : 'Académica (dictado regular)';
+    var a = porArea[k] = porArea[k] || {n:0, min:0, aulas:{}, pers:0};
+    a.n++;
+    if(valida(min(p.ini),min(p.fin))) a.min += min(p.fin)-min(p.ini);
+    a.aulas[p.aula]=1;
+    var q = parseInt(p.alumnos,10); if(!isNaN(q)) a.pers += q;
+  });
+  var totalMin = Object.keys(porArea).reduce(function(s,k){ return s+porArea[k].min; },0) || 1;
+  var claves = Object.keys(porArea).sort(function(x,y){ return porArea[y].min - porArea[x].min; });
+
+  g += '<div class="regla-fina" style="margin:34px 0 18px"></div>';
+  g += '<h3 style="font-size:20px">Uso por área solicitante</h3>';
+  g += '<p style="font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 14px">Cuánto del edificio se va en docencia y cuánto en actividades de otras áreas. Solo cuenta lo aprobado; las solicitudes pendientes no aparecen aquí.</p>';
+  g += '<table class="table"><thead><tr><th>Área</th><th style="text-align:right">Bloques</th><th style="text-align:right">Horas/semana</th><th style="text-align:right">Ambientes</th><th style="text-align:right">Personas</th><th>Peso</th></tr></thead><tbody>';
+  claves.forEach(function(k){
+    var a = porArea[k], pct = a.min/totalMin*100;
+    var esDoc = k.indexOf('Académica')===0;
+    g += '<tr><td><strong>'+esc(k)+'</strong></td><td class="num">'+a.n+'</td>' +
+      '<td class="num">'+(Math.round(a.min/6)/10)+'</td>' +
+      '<td class="num">'+Object.keys(a.aulas).length+'</td>' +
+      '<td class="num">'+a.pers+'</td>' +
+      '<td style="min-width:180px"><div style="display:flex;align-items:center;gap:8px">' +
+        '<div style="height:9px;width:'+Math.max(2,pct).toFixed(1)+'%;background:'+(esDoc?'var(--color-accent)':'var(--color-accent-2-500)')+'"></div>' +
+        '<span style="font-size:12px;opacity:.65">'+pct.toFixed(1)+'%</span></div></td></tr>';
+  });
+  g += '</tbody></table>';
+
   el('vista').innerHTML = g;
 }
 
@@ -680,12 +885,20 @@ function vLibres(){
       h += '<tr><td>'+esc(f.dia)+'</td><td><strong>'+esc(f.aula)+'</strong></td><td>'+esc(f.tipo)+'</td>' +
         '<td class="num">'+esc(f.aforo)+'</td><td>' +
         f.vs.slice(0,4).map(function(v){
-          return '<span class="tag tag-accent" style="margin-right:6px">'+hhmm(v[0])+' – '+hhmm(v[1])+'</span>';
+          return '<button class="tag tag-accent" style="margin-right:6px;border:0;cursor:pointer;font:inherit;font-size:11px" ' +
+            'data-col="'+esc(f.aula)+'|'+esc(f.dia)+'|'+v[0]+'|'+v[1]+'" ' +
+            'title="Colocar una clase o un evento en esta ventana">'+hhmm(v[0])+' – '+hhmm(v[1])+' &nbsp;+</button>';
         }).join('') + (f.vs.length>4 ? '<span style="opacity:.55;font-size:12px">+'+(f.vs.length-4)+' más</span>' : '') +
         '</td></tr>';
     });
     h += '</tbody></table>';
     el('hRes').innerHTML = h;
+    document.querySelectorAll('[data-col]').forEach(function(b){
+      b.onclick = function(){
+        var q = b.dataset.col.split('|');
+        abrirColocar(q[0], q[1], parseInt(q[2],10), parseInt(q[3],10), parseInt(S.hDur,10));
+      };
+    });
   }
   ['hDia','hIni','hFin','hDur','hAl','hTipo'].forEach(function(id){
     el(id).onchange = recalcular; el(id).oninput = recalcular;
@@ -706,7 +919,7 @@ function vDocentes(){
     m.n++; m.min += min(p.fin)-min(p.ini); m.dias[p.dia]=1; m.cursos[p.curso]=1; m.dictados.push(p);
   });
   var lista = Object.keys(mapa).sort();
-  if(S.q) lista = lista.filter(function(d){ return d.toLowerCase().indexOf(S.q.toLowerCase())>=0; });
+  if(S.q) lista = lista.filter(function(d){ return norm(d).indexOf(norm(S.q))>=0; });
   var g = '<h2 class="titulo">Carga docente</h2>' +
     '<p class="entrada">Horas efectivas de dictado por semana. Haz clic en un docente para ver su horario completo y detectar días partidos o choques.</p>';
   g += '<div class="barra-filtros">'+buscador('Buscar docente')+'</div>';
@@ -928,8 +1141,8 @@ function buscador(ph){
 }
 function coincide(p){
   if(!S.q) return true;
-  var t = (p.seccion+' '+p.docente+' '+p.curso+' '+p.aula+' '+p.grupo+' '+p.programa).toLowerCase();
-  return t.indexOf(S.q.toLowerCase())>=0;
+  return norm(p.seccion+' '+p.docente+' '+p.curso+' '+p.aula+' '+p.grupo+' '+p.programa)
+         .indexOf(norm(S.q)) >= 0;
 }
 function enlazarFiltros(){
   document.querySelectorAll('[data-dia]').forEach(function(r){

@@ -17,8 +17,8 @@ No contiene información económica. El libro de Auditoría de Aulas sigue siend
 |---|---|
 | **Panorama** | Mapa de calor de la semana: 18 ambientes × 18 turnos. Intensidad de cian = ocupación; magenta = cruce. Clic en una celda abre ese día. |
 | **Grilla del día** | Ambientes en filas, horas en columnas a escala real. Clic en un bloque para ver su ficha o reprogramarlo. |
-| **Ambientes** | Catálogo con aforo, capacidad física, dictados y horas de uso por semana. |
-| **Aulas libres** | Matriz día × turno, más un buscador de huecos por duración y número de alumnos. |
+| **Ambientes** | Catálogo con aforo, capacidad física, dictados y horas de uso por semana. Debajo, el reporte de **uso por área solicitante**: cuánto del edificio se va en docencia y cuánto en actividades de Comercial, Gerencia, Finanzas y demás. |
+| **Aulas libres** | Buscador de huecos por día, rango horario, duración, aforo y tipo de ambiente. Cada ventana libre es un botón: desde ahí se traslada una clase existente o se crea un evento nuevo. Debajo, la matriz día × turno como referencia. |
 | **Docentes** | Carga semanal de los 64 docentes. Clic para ver el horario completo de uno. |
 | **Alertas** | Cruces de ambiente, secciones sobre aforo, dictados sin ambiente y bajas. Se recalcula solo. |
 | **Cambios** | Propuestas pendientes e historial con autor, fecha y motivo. |
@@ -66,6 +66,11 @@ Sin esto la plataforma sirve para consultar, pero los cambios que proponga algui
 Cada persona pega la URL una vez en su navegador. Si prefieres que venga puesta de fábrica,
 edita en `index.html` la línea `var URL_SALA = "";` y pon la URL entre las comillas.
 
+### Áreas solicitantes
+
+En `index.html`, junto a `EDITORES`, está la lista `AREAS`. Es la que aparece al crear un evento
+y la que agrupa el reporte de uso. Edítala si cambia el organigrama.
+
 ### Editores
 
 En `index.html`, al inicio del bloque `<script>`, está la lista `EDITORES`. Cambia correos y nombres
@@ -76,6 +81,7 @@ que valida el servidor.
 
 ## Cómo funciona la aprobación
 
+0. Hay dos puntos de entrada: un bloque en la grilla, o una ventana libre en Aulas libres. Desde la ventana libre se puede además **crear un evento** que no existe en la programación (charla, examen, reunión). Un evento aprobado ocupa el ambiente igual que una clase: entra en los cruces, en las horas de uso y se puede reubicar o dar de baja.
 1. Un editor abre un bloque en la grilla, cambia ambiente, día u hora, y escribe el motivo.
 2. Antes de enviar, la ficha valida en vivo: ambiente ocupado, docente ya dictando a esa hora, aforo
    insuficiente. **Avisa, no bloquea.**

@@ -184,6 +184,18 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 .aviso.ok{border-left-color:var(--color-accent);background:var(--color-accent-100)}
 .rejilla-campos{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
+#tip{position:fixed;z-index:60;max-width:290px;background:var(--color-text);color:var(--color-bg);
+  padding:10px 12px;border-radius:2px;box-shadow:var(--shadow-lg);pointer-events:none;
+  opacity:0;transition:opacity .12s;font-size:12.5px;line-height:1.4}
+#tip.on{opacity:1}
+#tip .t-curso{font-family:var(--font-heading);font-size:15px;line-height:1.2;margin-bottom:5px}
+#tip .t-fila{display:flex;gap:8px;opacity:.78}
+#tip .t-fila span:first-child{min-width:64px;opacity:.7}
+#tip .t-al{margin-top:6px;padding-top:6px;border-top:1px solid color-mix(in srgb,#fff 22%,transparent);opacity:.9}
+#tip .t-al.lleno{color:var(--color-accent-2-400)}
+#tip .t-ev{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;opacity:.6;margin-bottom:3px}
+@media (max-width:760px){#tip{display:none}}
+
 footer{border-top:1px solid var(--color-divider);padding:20px 28px 50px;font-size:12px;opacity:.6}
 footer p{max-width:80ch;margin:3px 0}
 /* ---------- agenda móvil ---------- */
@@ -266,6 +278,7 @@ footer p{max-width:80ch;margin:3px 0}
   <p>Esta plataforma no contiene información económica. Los cambios aprobados se aplican sobre la programación base; el libro de Auditoría de Aulas sigue siendo el registro oficial.</p>
 </footer>
 
+<div id="tip" role="tooltip" aria-hidden="true"></div>
 <div class="velo" id="velo"></div>
 <aside class="panel" id="panel" role="dialog" aria-modal="true" tabindex="-1"></aside>
 
@@ -515,6 +528,54 @@ function abrirIdentidad(){
   el('btnSalir').onclick = function(){
     S.sesion = null; localStorage.removeItem(LS+'sesion'); cerrarPanel(); render();
   };
+}
+
+/* ---------- tarjeta flotante al pasar el cursor ---------- */
+var tip = null;
+function contenidoTip(p, hayCruce){
+  var n = parseInt(p.alumnos,10), af = parseInt(p.aforo,10);
+  var lleno = (!isNaN(n) && !isNaN(af) && n >= af);
+  var g = '';
+  if(hayCruce) g += '<div class="t-ev" style="color:var(--color-accent-2-400);opacity:1">Cruce sin resolver</div>';
+  else if(p.esEvento) g += '<div class="t-ev">Evento · '+esc(p.area||'')+'</div>';
+  g += '<div class="t-curso">'+esc(p.curso)+'</div>';
+  g += filaTip('Sección', p.seccion);
+  g += filaTip(p.esEvento ? 'Responsable' : 'Docente', p.docente);
+  g += filaTip('Ambiente', p.aula + (p.tipoAula ? ' · '+p.tipoAula : ''));
+  g += filaTip('Horario', p.dia+' '+p.horario);
+  if(!p.esEvento) g += filaTip('Grupo Q10', p.grupo);
+  g += '<div class="t-al'+(lleno?' lleno':'')+'">'+esc(p.alumnos)+(p.esEvento?' asistentes':' alumnos')+' de '+esc(p.aforo)+' de aforo</div>';
+  return g;
+}
+function filaTip(k,v){ return v ? '<div class="t-fila"><span>'+esc(k)+'</span><span>'+esc(v)+'</span></div>' : ''; }
+
+function mostrarTip(html, x, y){
+  if(!tip) tip = el('tip');
+  tip.innerHTML = html;
+  tip.classList.add('on');
+  colocarTip(x, y);
+}
+function colocarTip(x, y){
+  if(!tip) return;
+  var r = tip.getBoundingClientRect();
+  var iz = x + 16, ar = y + 18;
+  if(iz + r.width > window.innerWidth - 12) iz = x - r.width - 16;   // se voltea antes de salirse
+  if(ar + r.height > window.innerHeight - 12) ar = y - r.height - 18;
+  tip.style.left = Math.max(8, iz) + 'px';
+  tip.style.top  = Math.max(8, ar) + 'px';
+}
+function ocultarTip(){ if(tip) tip.classList.remove('on'); }
+
+function enlazarTip(sel, buscar){
+  document.querySelectorAll(sel).forEach(function(b){
+    b.addEventListener('mouseenter', function(e){
+      var d = buscar(b);
+      if(d) mostrarTip(contenidoTip(d.p, d.cruce), e.clientX, e.clientY);
+    });
+    b.addEventListener('mousemove', function(e){ colocarTip(e.clientX, e.clientY); });
+    b.addEventListener('mouseleave', ocultarTip);
+    b.addEventListener('click', ocultarTip);
+  });
 }
 
 /* ---------- panel ---------- */
@@ -922,7 +983,7 @@ function vGrilla(){
       var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
       var cls = 'bloque' + turnoCls + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
       var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-      g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%" title="'+esc(p.seccion+' · '+p.curso+' · '+p.docente+' · '+p.horario+' · '+p.alumnos+' alumnos')+'">' +
+      g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
            (cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
            (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
            '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +
@@ -935,6 +996,10 @@ function vGrilla(){
   enlazarFiltros();
   document.querySelectorAll('.bloque').forEach(function(b){
     b.onclick = function(){ var p = activos().filter(function(x){return x.id===b.dataset.id;})[0]; if(p) abrirDictado(p); };
+  });
+  enlazarTip('.bloque', function(b){
+    var p = activos().filter(function(x){return x.id===b.dataset.id;})[0];
+    return p ? {p:p, cruce:!!cru[p.id]} : null;
   });
 }
 

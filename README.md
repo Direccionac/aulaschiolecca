@@ -1,64 +1,111 @@
-# Ambientes Chio Lecca — portal de ocupación 2026-2
+# Auditoría de Ambientes — Instituto Chio Lecca · Ciclo 2026-II
 
-Portal de una sola página con la ocupación de ambientes, aulas libres, alertas de aforo y secciones homologadas con Q10.
-No contiene información económica: tarifas, costos y planilla se quedan en los archivos de Dirección Académica.
+Plataforma de una sola página para la Dirección Académica: ocupación de aulas, carga docente,
+detección de cruces y reprogramación de dictados con aprobación.
 
-- **Archivo único:** `index.html`. No necesita servidor, base de datos ni compilación.
-- **Fuente:** libro *Auditoría de Aulas 2026 · v10*, hoja PROGRAMACIÓN EDITABLE. Matrícula del export «Estudiantes» de Q10 del 05-09-2026 12:30.
+- **`index.html`** — la plataforma completa. Sin servidor, sin compilación, sin dependencias.
+- **`Codigo.gs`** — el servicio de Google Apps Script que guarda los cambios en una hoja de Google.
+- **`isotipo.png`** — el isotipo que aparece en la cabecera (opcional).
 
----
-
-## Publicar en GitHub Pages (10 minutos, sin instalar nada)
-
-Todo se hace desde el navegador, con la cuenta de GitHub creada con gpacheco@chio-lecca.edu.pe.
-
-1. Entra a **github.com** → botón **+** arriba a la derecha → **New repository**.
-2. **Repository name:** `ambientes-chio-lecca`. Marca **Public**. No marques «Add a README». → **Create repository**.
-3. En la pantalla siguiente, haz clic en **uploading an existing file**.
-4. Arrastra `index.html` (y este `README.md` si quieres) → **Commit changes**.
-5. Pestaña **Settings** → menú lateral **Pages**.
-6. En *Build and deployment* → *Source*: **Deploy from a branch**. *Branch*: **main**, carpeta **/ (root)** → **Save**.
-7. Espera 1–2 minutos y recarga la página de Pages. Aparecerá la dirección:
-
-   `https://TU-USUARIO.github.io/ambientes-chio-lecca/`
-
-Esa es la dirección que se comparte con Gerencia. Es pública: cualquiera con el enlace la ve, no requiere cuenta ni permisos.
-
-### Si prefieres que no sea pública
-
-GitHub Pages en repositorios privados solo funciona con plan de pago. Dos alternativas gratuitas:
-
-- **Netlify Drop** (netlify.com/drop): arrastras la carpeta y te da un enlace al instante. Permite proteger con contraseña en el plan gratuito por tiempo limitado.
-- **Cloudflare Pages**: sube la carpeta y activa *Cloudflare Access* para restringir por correo institucional.
+No contiene información económica. El libro de Auditoría de Aulas sigue siendo el registro oficial.
 
 ---
 
-## Actualizar el portal cuando cambie el horario o la matrícula
+## Qué hace cada pestaña
 
-El portal es una foto de los datos del libro. Para refrescarlo:
-
-1. Actualiza el libro **Auditoría de Aulas** como siempre.
-2. Pide la regeneración del `index.html` con el libro nuevo.
-3. En GitHub: entra al repositorio → clic en `index.html` → icono del lápiz → borra el contenido, pega el nuevo → **Commit changes**.
-   O bien **Add file → Upload files** y sube el `index.html` nuevo encima.
-
-El sitio se actualiza solo, uno o dos minutos después del commit.
-
----
-
-## Qué ve el usuario
-
-| Vista | Para qué sirve |
+| Pestaña | Para qué sirve |
 |---|---|
-| **Ocupación** | Rejilla ambiente × turno para el día elegido. Cada bloque abre una ficha con docente, grupo Q10, alumnos y aforo. |
-| **Aulas libres** | Qué ambientes no tienen dictado, por día y turno, más el catálogo con aforo y capacidad física. |
-| **Alertas** | Bloques sobre aforo, cruces de ambiente y bloques desactivados. |
-| **Secciones** | Las secciones homologadas con Q10, con su grupo o campaña y sus matriculados. |
+| **Panorama** | Mapa de calor de la semana: 18 ambientes × 18 turnos. Intensidad de cian = ocupación; magenta = cruce. Clic en una celda abre ese día. |
+| **Grilla del día** | Ambientes en filas, horas en columnas a escala real. Clic en un bloque para ver su ficha o reprogramarlo. |
+| **Ambientes** | Catálogo con aforo, capacidad física, dictados y horas de uso por semana. |
+| **Aulas libres** | Matriz día × turno, más un buscador de huecos por duración y número de alumnos. |
+| **Docentes** | Carga semanal de los 64 docentes. Clic para ver el horario completo de uno. |
+| **Alertas** | Cruces de ambiente, secciones sobre aforo, dictados sin ambiente y bajas. Se recalcula solo. |
+| **Cambios** | Propuestas pendientes e historial con autor, fecha y motivo. |
+| **Datos** | Conexión a la sala compartida y exportación a CSV. |
+| **Guía** | Los doce pasos para alguien que entra nuevo al equipo. |
 
-El buscador filtra por sección, docente, curso o aula en todas las vistas.
-Los ambientes marcados en magenta son excepciones que requieren decisión; el cian indica uso normal.
+---
 
-## Colores corporativos
+## Parte 1 · Publicar la página
 
-`--gris-tinta #2B2F36` · `--gris-medio #787F89` · `--gris-linea #DCE0E5` · `--gris-fondo #F2F4F6` · `--cian #00A3C4` · `--magenta #C6007E` · blanco.
-Están definidos como variables CSS al inicio de `index.html`; cambiar un valor ahí cambia todo el sitio.
+El repositorio es `Direccionac/aulaschiolecca` y GitHub Pages ya está activo en `main / (root)`.
+Para actualizar: **Add file → Upload files**, sube el `index.html` nuevo encima y **Commit changes**.
+Uno o dos minutos después, `https://direccionac.github.io/aulaschiolecca/` sirve la versión nueva.
+
+Sube también `isotipo.png` a la raíz si quieres el logo en la cabecera. Si el archivo no está, la
+cabecera funciona igual.
+
+---
+
+## Parte 2 · Montar la sala compartida (15 minutos, una sola vez)
+
+Sin esto la plataforma sirve para consultar, pero los cambios que proponga alguien no los ve nadie más.
+
+1. Crea una **hoja de cálculo de Google** nueva. Llámala, por ejemplo, `Ambientes — Cambios 2026-II`.
+2. Dentro de la hoja: **Extensiones → Apps Script**.
+3. Borra lo que haya y pega el contenido de **`Codigo.gs`**. Guarda.
+4. En el desplegable de funciones elige **`preparar`** y pulsa **Ejecutar**. Google pedirá autorizar; acepta.
+   Esto crea la pestaña `Cambios` con sus encabezados.
+5. Rueda dentada **Configuración del proyecto → Propiedades del script → Añadir propiedad**. Crea dos:
+
+   | Propiedad | Valor |
+   |---|---|
+   | `CLAVE_ADMIN` | la clave de quien aprueba y rechaza |
+   | `CLAVE_EDITOR` | la clave de quien solo propone |
+
+   Estas claves viven en el servidor de Google, no en el `index.html`. Son las únicas que valen.
+6. **Implementar → Nueva implementación → Aplicación web**:
+   - *Ejecutar como*: **Yo**
+   - *Quién tiene acceso*: **Cualquier usuario**
+
+   Copia la URL que termina en **`/exec`**.
+7. Abre el portal, ve a **Datos**, pega la URL en «Dirección del servicio» y pulsa **Conectar**.
+   El punto de la cabecera se pone cian y dice «Sala conectada».
+
+Cada persona pega la URL una vez en su navegador. Si prefieres que venga puesta de fábrica,
+edita en `index.html` la línea `var URL_SALA = "";` y pon la URL entre las comillas.
+
+### Editores
+
+En `index.html`, al inicio del bloque `<script>`, está la lista `EDITORES`. Cambia correos y nombres
+por los reales. El campo `rol` solo decide qué botones se muestran; quien manda de verdad es la clave
+que valida el servidor.
+
+---
+
+## Cómo funciona la aprobación
+
+1. Un editor abre un bloque en la grilla, cambia ambiente, día u hora, y escribe el motivo.
+2. Antes de enviar, la ficha valida en vivo: ambiente ocupado, docente ya dictando a esa hora, aforo
+   insuficiente. **Avisa, no bloquea.**
+3. La propuesta llega a la hoja de Google con estado `pendiente`.
+4. Quien tenga la `CLAVE_ADMIN` la aprueba o la rechaza desde la pestaña Cambios.
+5. Al aprobarla, el cambio se aplica sobre la programación base y todas las vistas se recalculan:
+   cruces, aulas libres, carga docente.
+6. Todo queda en la hoja con autor, fecha, motivo y quién resolvió.
+
+La plataforma sincroniza cada 15 segundos.
+
+---
+
+## Lo que hay que tener claro
+
+**La página es pública.** Cualquiera con el enlace puede consultar la ocupación, los nombres de los
+docentes y los números de matrícula. La clave protege la escritura, no la lectura. Si algún día eso
+deja de servir, la ruta es Cloudflare Pages con acceso restringido al dominio institucional.
+
+**La programación base viene incrustada.** Sale del libro de Auditoría de Aulas, hoja
+PROGRAMACIÓN EDITABLE. Cuando cambie el horario madre hay que regenerar el `index.html` y volver a
+subirlo. El historial de cambios no se pierde: vive en la hoja de Google, aparte.
+
+**El registro oficial sigue siendo el Excel.** Esta plataforma sirve para decidir y dejar rastro.
+Lo aprobado aquí hay que trasladarlo al libro.
+
+---
+
+## Colores y tipografía
+
+Sistema editorial: fondo `#f3f2f2`, superficie `#eae9e9`, tinta `#201e1d`, cian `#0088b0`,
+magenta `#d6006c`. Tipografía Source Serif 4 en 400 y 600. Todo está en las variables CSS del
+`:root`, al inicio del archivo: cambiar un valor ahí cambia el sitio entero.

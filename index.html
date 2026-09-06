@@ -186,9 +186,53 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 
 footer{border-top:1px solid var(--color-divider);padding:20px 28px 50px;font-size:12px;opacity:.6}
 footer p{max-width:80ch;margin:3px 0}
-@media (max-width:700px){
-  .kpis{gap:26px}.kpi .n{font-size:32px}main{padding:22px 16px 70px}
-  .cab-fila,nav.tabs{padding-inline:16px}.envoltura{padding-inline:16px}
+/* ---------- agenda móvil ---------- */
+.agenda-turno{display:flex;align-items:baseline;gap:10px;margin:22px 0 8px;padding:7px 10px;border-top:3px solid var(--color-neutral-500)}
+.agenda-turno.m{background:color-mix(in srgb,var(--color-neutral-700) 7%,transparent)}
+.agenda-turno.t{background:color-mix(in srgb,var(--color-accent) 9%,transparent);border-top-color:var(--color-accent)}
+.agenda-turno.n{background:color-mix(in srgb,var(--color-accent-2) 7%,transparent);border-top-color:var(--color-accent-2-600)}
+.agenda-turno b{font-family:var(--font-heading);font-weight:400;font-size:17px}
+.agenda-turno small{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;opacity:.5;margin-left:auto}
+.tarjeta{display:grid;grid-template-columns:62px 1fr;gap:12px;width:100%;text-align:left;font:inherit;
+  background:#fdfdfd;border:0;border-left:3px solid var(--color-neutral-500);border-radius:2px;
+  padding:9px 11px;margin-bottom:5px;cursor:pointer;box-shadow:0 1px 2px color-mix(in srgb,#2d2b2b 8%,transparent)}
+.tarjeta.turno-t{border-left-color:var(--color-accent)}
+.tarjeta.turno-n{border-left-color:var(--color-accent-2-600)}
+.tarjeta.cruce{background:var(--color-accent-2-600);color:var(--color-bg)}
+.tarjeta.evento{background:var(--color-neutral-100);border-left-color:var(--color-text);border-left-style:double;border-left-width:6px}
+.tarjeta .aula{font-family:var(--font-heading);font-size:19px;line-height:1.05}
+.tarjeta .aula small{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.5}
+.tarjeta .curso{font-size:14.5px;line-height:1.25}
+.tarjeta .meta{font-size:12.5px;opacity:.65;font-variant-numeric:tabular-nums;margin-top:2px}
+.tarjeta.cruce .meta,.tarjeta.cruce .aula small{opacity:.85}
+
+@media (max-width:760px){
+  body{font-size:15px}
+  main{padding:20px 14px 70px}
+  .cab-fila,nav.tabs{padding-inline:14px}.envoltura{padding-inline:14px}
+  .cab-fila{gap:10px;padding-top:10px}
+  .cab-marca{font-size:17px;width:100%;order:2}
+  .cab-marca span{display:block;margin:2px 0 0}
+  .cab-estado{margin-left:0;order:3;width:100%;font-size:11.5px;gap:10px}
+  nav.tabs{flex-wrap:nowrap;overflow-x:auto;gap:16px;padding-bottom:8px;-webkit-overflow-scrolling:touch}
+  nav.tabs::-webkit-scrollbar{display:none}
+  nav.tabs button{white-space:nowrap;font-size:15px}
+  h2.titulo{font-size:23px}
+  p.entrada{font-size:13.5px;margin-bottom:16px}
+  .kpis{gap:0;margin-bottom:26px;display:grid;grid-template-columns:1fr 1fr}
+  .kpi{padding:10px 0}
+  .kpi .n{font-size:28px}.kpi .d{display:none}
+  .barra-filtros{gap:8px}
+  .barra-filtros .field{flex:1 1 46%}
+  .seg{width:100%}.seg-opt{flex:1;justify-content:center;padding:8px 6px}
+  .buscador,#q{max-width:none;width:100%}
+  /* las tablas anchas se deslizan en lugar de romper la pantalla */
+  .table{display:block;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch}
+  .table td,.table th{padding:7px 8px;font-size:13px}
+  .rejilla-campos{grid-template-columns:1fr}
+  .panel dl{grid-template-columns:110px 1fr}
+  .heat{min-width:760px}
+  .heat-aula{font-size:11px}
 }
 @media print{.cabecera,nav.tabs,.velo,.panel,.barra-filtros{display:none}body{background:#fff}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -296,6 +340,7 @@ function turnoDe(m){ return m<13*60 ? 'Mañana' : (m<18*60 ? 'Tarde' : 'Noche');
 function pct(m){ return (m - min(DIA_INI)) / (min(DIA_FIN) - min(DIA_INI)) * 100; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function el(id){ return document.getElementById(id); }
+function esMovil(){ return window.innerWidth < 760; }
 
 /* ---------- programación vigente = base + cambios aprobados ---------- */
 function vigente(){
@@ -758,11 +803,44 @@ function vGrilla(){
   var aulasUso = {}; delDia.forEach(function(p){ if(p.aula) aulasUso[p.aula]=1; });
   var nCruce = delDia.filter(function(p){ return cru[p.id]; }).length;
 
-  var g = '<h2 class="titulo">Grilla del día</h2>' +
-    '<p class="entrada" style="margin-bottom:14px">Ambientes en filas, horas en columnas. Las bandas separan mañana, tarde y noche. Haz clic en un bloque para ver su ficha o reprogramarlo.</p>';
+  var movil = esMovil();
+  var g = '<h2 class="titulo">'+(movil?'Agenda del día':'Grilla del día')+'</h2>' +
+    '<p class="entrada" style="margin-bottom:14px">' +
+    (movil ? 'Los dictados del día en orden, agrupados por turno. Toca uno para ver su ficha o reprogramarlo.'
+           : 'Ambientes en filas, horas en columnas. Las bandas separan mañana, tarde y noche. Haz clic en un bloque para ver su ficha o reprogramarlo.') +
+    '</p>';
   g += '<div class="barra-filtros">' + segDias() + segTurnos() + buscador() + '</div>';
   g += '<p class="linea-cifras"><b>'+delDia.length+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
        Object.keys(docentes).length+'</b> docentes · <b'+(nCruce?' style="color:var(--color-accent-2)"':'')+'>'+nCruce+'</b> con cruce</p>';
+
+  /* En pantalla chica una parrilla de horas no se puede leer: se cambia de formato,
+     no de escala. Misma información, ordenada por hora y agrupada por turno. */
+  if(movil){
+    g += '<p class="linea-cifras" style="margin-top:-6px">Toca un dictado para abrir su ficha.</p>';
+    franjas.forEach(function(f){
+      var bs = act.filter(function(p){ return p.turno===f.t && valida(min(p.ini),min(p.fin)); })
+                  .sort(function(x,y){ return min(x.ini)-min(y.ini) || (x.aula||'').localeCompare(y.aula||''); });
+      if(!bs.length) return;
+      g += '<div class="agenda-turno '+f.clave+'"><b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+bs.length+'</small></div>';
+      bs.forEach(function(p){
+        var cls = 'tarjeta turno-'+f.clave + (cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
+        var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
+        g += '<button class="'+cls+'" data-id="'+esc(p.id)+'">' +
+          '<div class="aula">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
+          '<div><div class="curso">'+esc(p.esEvento?(p.seccion||p.curso):p.curso)+'</div>' +
+          '<div class="meta">'+esc(p.horario)+' · '+esc(p.seccion)+'</div>' +
+          '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
+          '</div></button>';
+      });
+    });
+    if(!act.length) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
+    el('vista').innerHTML = g;
+    enlazarFiltros();
+    document.querySelectorAll('.tarjeta').forEach(function(b){
+      b.onclick = function(){ var p = activos().filter(function(x){return x.id===b.dataset.id;})[0]; if(p) abrirDictado(p); };
+    });
+    return;
+  }
 
   var cols = 'grid-template-columns:78px 1fr';
 
@@ -1304,6 +1382,12 @@ el('pieFuente').textContent = 'Fuente: ' + D.libro + ', hoja PROGRAMACIÓN EDITA
 })();
 
 render();
+var anchoPrevio = window.innerWidth;
+window.addEventListener('resize', function(){
+  var m1 = anchoPrevio < 760, m2 = window.innerWidth < 760;
+  anchoPrevio = window.innerWidth;
+  if(m1 !== m2) render();     // solo si cruzó el umbral: evita redibujar en cada píxel
+});
 if(S.url) traer();
 setInterval(function(){ if(S.url) traer(); }, 15000);
 })();

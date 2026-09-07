@@ -919,13 +919,15 @@ function kpi(n,l,d,alerta){
 
 function vGrilla(){
   var todosAct = activos();
-  var delDia = todosAct.filter(function(p){ return p.dia===S.dia; });
-  var act = delDia.filter(coincide).filter(function(p){
+  var diasVista = S.dia==='Todos' ? DIAS : [S.dia];
+  var delRango = todosAct.filter(function(p){ return diasVista.indexOf(p.dia)>=0; });
+  var act = delRango.filter(coincide).filter(function(p){
     return S.turno==='Todos' || p.turno===S.turno;
   });
   var cru = idsEnCruce(todosAct);
+  var variosDias = diasVista.length > 1;
 
-  /* Eje fijo 08:00–22:30, o acotado al turno elegido, para que las bandas cuadren siempre. */
+  /* Eje fijo 08:00-22:30, o acotado al turno elegido, para que las bandas cuadren siempre. */
   var t0 = min(DIA_INI), t1 = min(DIA_FIN);
   var franjas = FRANJAS;
   if(S.turno!=='Todos'){
@@ -935,41 +937,66 @@ function vGrilla(){
   var span = t1 - t0;
   function px(m){ return (m - t0)/span*100; }
 
-  var docentes = {}; delDia.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
-  var aulasUso = {}; delDia.forEach(function(p){ if(p.aula) aulasUso[p.aula]=1; });
-  var nCruce = delDia.filter(function(p){ return cru[p.id]; }).length;
+  var docentes = {}; delRango.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
+  var aulasUso = {}; delRango.forEach(function(p){ if(p.aula) aulasUso[p.aula]=1; });
+  var nCruce = delRango.filter(function(p){ return cru[p.id]; }).length;
+
+  /* Filas de la grilla. Con una busqueda puesta, o con la semana completa a la
+     vista, solo se muestran los ambientes que tienen algo: una columna de filas
+     vacias no dice nada. En la vista de un solo dia sin busqueda se mantienen
+     todos los ambientes de la semana, para leer el dia contra el edificio entero. */
+  function filasDe(actDia){
+    var lista = (S.q || variosDias)
+      ? D.aulas.filter(function(a){ return actDia.some(function(p){return p.aula===a.aula;}); })
+      : D.aulas.filter(function(a){ return todosAct.some(function(p){return p.aula===a.aula;}); });
+    lista = lista.slice();
+    var sueltos = (S.q || variosDias) ? actDia : todosAct;
+    sueltos.forEach(function(p){
+      if(p.aula && !lista.some(function(a){return a.aula===p.aula;})) lista.push({aula:p.aula, tipo:'Sin ambiente físico', aforo:'—'});
+    });
+    return lista;
+  }
 
   var movil = esMovil();
   var g = '<h2 class="titulo">'+(movil?'Agenda del día':'Grilla del día')+'</h2>' +
     '<p class="entrada" style="margin-bottom:14px">' +
-    (movil ? 'Los dictados del día en orden, agrupados por turno. Toca uno para ver su ficha o reprogramarlo.'
+    (movil ? 'Los dictados en orden, agrupados por turno. Toca uno para ver su ficha o reprogramarlo.'
            : 'Ambientes en filas, horas en columnas. Las bandas separan mañana, tarde y noche. Haz clic en un bloque para ver su ficha o reprogramarlo.') +
     '</p>';
   g += '<div class="barra-filtros">' + segDias() + segTurnos() + buscador() + '</div>';
-  g += '<p class="linea-cifras"><b>'+delDia.length+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
+  g += '<p class="linea-cifras">' + (variosDias ? '<b>Semana completa</b> · ' : '') + '<b>'+delRango.length+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
        Object.keys(docentes).length+'</b> docentes · <b'+(nCruce?' style="color:var(--color-accent-2)"':'')+'>'+nCruce+'</b> con cruce</p>';
 
   /* En pantalla chica una parrilla de horas no se puede leer: se cambia de formato,
-     no de escala. Misma información, ordenada por hora y agrupada por turno. */
+     no de escala. Misma informacion, ordenada por hora y agrupada por turno. */
   if(movil){
     g += '<p class="linea-cifras" style="margin-top:-6px">Toca un dictado para abrir su ficha.</p>';
-    franjas.forEach(function(f){
-      var bs = act.filter(function(p){ return p.turno===f.t && valida(min(p.ini),min(p.fin)); })
-                  .sort(function(x,y){ return min(x.ini)-min(y.ini) || (x.aula||'').localeCompare(y.aula||''); });
-      if(!bs.length) return;
-      g += '<div class="agenda-turno '+f.clave+'"><b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+bs.length+'</small></div>';
-      bs.forEach(function(p){
-        var cls = 'tarjeta turno-'+f.clave + (cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
-        var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-        g += '<button class="'+cls+'" data-id="'+esc(p.id)+'">' +
-          '<div class="aula'+((p.aula||'').length>4?' larga':'')+'">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
-          '<div><div class="curso">'+esc(p.esEvento?(p.seccion||p.curso):p.curso)+'</div>' +
-          '<div class="meta">'+esc(p.horario)+' · '+esc(p.seccion)+'</div>' +
-          '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
-          '</div></button>';
+    var hayMovil = false;
+    diasVista.forEach(function(d){
+      var actDia = act.filter(function(p){ return p.dia===d; });
+      if(variosDias){
+        if(!actDia.length) return;
+        g += '<h3 style="font-size:19px;margin:22px 0 4px">'+esc(d)+'</h3>';
+      }
+      franjas.forEach(function(f){
+        var bs = actDia.filter(function(p){ return p.turno===f.t && valida(min(p.ini),min(p.fin)); })
+                    .sort(function(x,y){ return min(x.ini)-min(y.ini) || (x.aula||'').localeCompare(y.aula||''); });
+        if(!bs.length) return;
+        hayMovil = true;
+        g += '<div class="agenda-turno '+f.clave+'"><b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+bs.length+'</small></div>';
+        bs.forEach(function(p){
+          var cls = 'tarjeta turno-'+f.clave + (cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
+          var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
+          g += '<button class="'+cls+'" data-id="'+esc(p.id)+'">' +
+            '<div class="aula'+((p.aula||'').length>4?' larga':'')+'">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
+            '<div><div class="curso">'+esc(p.esEvento?(p.seccion||p.curso):p.curso)+'</div>' +
+            '<div class="meta">'+esc(p.horario)+' · '+esc(p.seccion)+'</div>' +
+            '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
+            '</div></button>';
+        });
       });
     });
-    if(!act.length) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
+    if(!hayMovil) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
     el('vista').innerHTML = g;
     enlazarFiltros();
     document.querySelectorAll('.tarjeta').forEach(function(b){
@@ -979,56 +1006,68 @@ function vGrilla(){
   }
 
   var cols = 'grid-template-columns:78px 1fr';
-
-  /* Cabecera de franjas */
-  g += '<div class="grid-scroll"><div class="grid-cuerpo">';
-  g += '<div style="display:grid;'+cols+'"><div></div><div class="cab-franjas">' +
-    franjas.map(function(f){
-      var n = delDia.filter(function(p){ return p.turno===f.t; }).length;
-      var w = (min(f.fin)-min(f.ini))/span*100;
-      return '<div class="cab-franja '+f.clave+'" style="width:'+w.toFixed(3)+'%">' +
-        '<b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+n+' dictados</small></div>';
-    }).join('') + '</div></div>';
-
-  /* Eje de horas */
-  var horas = []; for(var h=Math.ceil(t0/60)*60; h<=t1; h+=60) horas.push(h);
-  g += '<div class="grid-horas" style="'+cols+'"><div></div><div style="position:relative;height:16px">' +
-    horas.map(function(h){
-      return '<div class="grid-hora" style="position:absolute;left:'+px(h).toFixed(3)+'%">'+hhmm(h)+'</div>';
-    }).join('') + '</div></div>';
-
-  var filas = D.aulas.filter(function(a){ return todosAct.some(function(p){return p.aula===a.aula;}); });
-  todosAct.forEach(function(p){
-    if(p.aula && !filas.some(function(a){return a.aula===p.aula;})) filas.push({aula:p.aula, tipo:'Sin ambiente físico', aforo:'—'});
-  });
-
   var fondo = franjas.map(function(f){
     var w = (min(f.fin)-min(f.ini))/span*100;
     return '<div class="franja '+f.clave+'" style="width:'+w.toFixed(3)+'%"></div>';
   }).join('');
 
-  filas.forEach(function(a){
-    var bs = act.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
-    g += '<div class="grid-fila" style="'+cols+'">';
-    g += '<div class="grid-aula">'+esc(a.aula)+'<small>'+esc(a.tipo==='Sin ambiente físico'?'sin ambiente':a.tipo)+'</small></div>';
-    g += '<div class="grid-pista"><div class="franjas">'+fondo+'</div>';
-    bs.forEach(function(p){
-      var izq = px(min(p.ini)), an = (min(p.fin)-min(p.ini))/span*100;
-      if(izq >= 100 || izq + an <= 0) return;
-      if(izq < 0){ an += izq; izq = 0; }
-      if(izq + an > 100) an = 100 - izq;
-      var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
-      var cls = 'bloque' + turnoCls + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
-      var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-      g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
-           (cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
-           (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
-           '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +
-           '<span class="hora">'+esc(p.horario)+' · '+esc(p.seccion)+' · '+esc(apellido)+'</span></button>';
+  g += '<div class="grid-scroll"><div class="grid-cuerpo">';
+  var hay = false;
+  diasVista.forEach(function(d, idx){
+    var delDia = delRango.filter(function(p){ return p.dia===d; });
+    var actDia = act.filter(function(p){ return p.dia===d; });
+
+    if(variosDias){
+      g += '<div style="margin:'+(idx?'26px':'2px')+' 0 4px;display:flex;align-items:baseline;gap:10px">' +
+        '<h3 style="font-size:19px">'+esc(d)+'</h3>' +
+           '<span style="font-size:13px;opacity:.6">'+actDia.length+' dictado(s)</span></div>';
+      if(!actDia.length){
+        g += '<p style="font-size:13px;opacity:.6;margin:0 0 4px">Sin dictados con ese filtro.</p>';
+        return;
+      }
+    }
+    hay = hay || actDia.length>0;
+
+    /* Cabecera de franjas */
+    g += '<div style="display:grid;'+cols+'"><div></div><div class="cab-franjas">' +
+      franjas.map(function(f){
+        var n = delDia.filter(function(p){ return p.turno===f.t; }).length;
+        var w = (min(f.fin)-min(f.ini))/span*100;
+        return '<div class="cab-franja '+f.clave+'" style="width:'+w.toFixed(3)+'%">' +
+          '<b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+n+' dictados</small></div>';
+      }).join('') + '</div></div>';
+
+    /* Eje de horas */
+    var horas = []; for(var hh=Math.ceil(t0/60)*60; hh<=t1; hh+=60) horas.push(hh);
+    g += '<div class="grid-horas" style="'+cols+'"><div></div><div style="position:relative;height:16px">' +
+      horas.map(function(x){
+        return '<div class="grid-hora" style="position:absolute;left:'+px(x).toFixed(3)+'%">'+hhmm(x)+'</div>';
+      }).join('') + '</div></div>';
+
+    filasDe(actDia).forEach(function(a){
+      var bs = actDia.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
+      g += '<div class="grid-fila" style="'+cols+'">';
+      g += '<div class="grid-aula">'+esc(a.aula)+'<small>'+esc(a.tipo==='Sin ambiente físico'?'sin ambiente':a.tipo)+'</small></div>';
+      g += '<div class="grid-pista"><div class="franjas">'+fondo+'</div>';
+      bs.forEach(function(p){
+        var izq = px(min(p.ini)), an = (min(p.fin)-min(p.ini))/span*100;
+        if(izq >= 100 || izq + an <= 0) return;
+        if(izq < 0){ an += izq; izq = 0; }
+        if(izq + an > 100) an = 100 - izq;
+        var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
+        var cls = 'bloque' + turnoCls + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
+        var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
+        g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
+             (cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
+             (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
+             '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +
+             '<span class="hora">'+esc(p.horario)+' · '+esc(p.seccion)+' · '+esc(apellido)+'</span></button>';
+      });
+      g += '</div></div>';
     });
-    g += '</div></div>';
   });
   g += '</div></div>';
+  if(!hay) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
   el('vista').innerHTML = g;
   enlazarFiltros();
   document.querySelectorAll('.bloque').forEach(function(b){
@@ -1515,8 +1554,8 @@ function vGuia(){
 
 /* ---------- filtros compartidos ---------- */
 function segDias(){
-  return '<div class="seg">' + DIAS.map(function(d){
-    return '<label class="seg-opt"><input type="radio" name="dia"'+(S.dia===d?' checked':'')+' data-dia="'+d+'">'+d.slice(0,3)+'</label>';
+  return '<div class="seg">' + ['Todos'].concat(DIAS).map(function(d){
+    return '<label class="seg-opt"><input type="radio" name="dia"'+(S.dia===d?' checked':'')+' data-dia="'+d+'">'+(d==='Todos'?'Todos':d.slice(0,3))+'</label>';
   }).join('') + '</div>';
 }
 function buscador(ph){

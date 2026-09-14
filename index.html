@@ -715,6 +715,33 @@ function eventos(sem){
 function activos(){ return vigente().filter(function(p){return p.activo==='SÍ' && p.enFecha!==false;}); }
 function pendientes(){ return S.cambios.filter(function(c){return c.estado==='pendiente';}); }
 
+/* ---------- cambios permanentes que ya no calzan con la base ----------
+   Un traslado sin fecha se aplica encima de la base para siempre. Si
+   despues se corrige la base, ese traslado viejo sigue arrastrando el
+   dictado a un ambiente que ya no corresponde y nadie lo nota, porque el
+   historial solo dice de donde salio, no a donde deberia estar hoy.
+   Esto lista esos casos y marca los que ademas producen un cruce. */
+function cambiosDesfasados(){
+  var base = {};
+  D.prog.forEach(function(p){ base[p.id] = p; });
+  var enCruce = idsEnCruce(activos());
+  var out = [];
+  (S.cambios || []).forEach(function(c){
+    if(c.estado !== 'aprobado' || c.accion !== 'mover') return;
+    if(c.desde || c.hasta) return;           /* temporal: se apaga solo */
+    var p = base[c.did];
+    if(!p) return;                           /* eventos y dictados dados de baja */
+    var dif = [];
+    if(c.aula && c.aula !== p.aula) dif.push('ambiente: la base dice ' + p.aula + ' y el cambio lo manda al ' + c.aula);
+    if(c.dia  && c.dia  !== p.dia)  dif.push('día: la base dice ' + p.dia + ' y el cambio lo manda al ' + c.dia);
+    if(c.ini && c.fin && (min(c.ini) !== min(p.ini) || min(c.fin) !== min(p.fin)))
+      dif.push('horario: la base dice ' + p.horario + ' y el cambio lo manda a ' + c.ini + '-' + c.fin);
+    if(!dif.length) return;
+    out.push({c:c, p:p, dif:dif, cruce: !!enCruce[p.id]});
+  });
+  return out.sort(function(a,b){ return (b.cruce?1:0) - (a.cruce?1:0); });
+}
+
 /* ---------- cruces calculados en vivo ---------- */
 function cruces(lista){
   var res = [];
@@ -1990,6 +2017,24 @@ function vCambios(){
   var porVencer = S.cambios.filter(function(c){
     return c.estado==='aprobado' && c.hasta && c.hasta > hoy && c.hasta < masDias(hoy,15) && c.hasta < CICLO.fin;
   });
+  /* Aviso de traslados permanentes que discrepan de la base. */
+  var desf = cambiosDesfasados();
+  if(desf.length){
+    g += '<h3 style="font-size:20px;margin-bottom:10px">Traslados permanentes que discrepan de la base ' +
+         '<span class="tag ' + (desf.some(function(d){return d.cruce;}) ? 'tag-accent-2' : 'tag-accent') + '">' + desf.length + '</span></h3>';
+    g += '<p class="entrada" style="margin-bottom:10px">Estos cambios no tienen fecha de fin, asi que se siguen aplicando encima de la programacion base. Donde la base ya dice otra cosa, conviene revisar si el traslado sigue teniendo sentido: si la base se corrigio despues, el cambio sobra y hay que rechazarlo en la hoja de la sala.</p>';
+    g += '<table class="table" style="margin-bottom:34px"><thead><tr><th>Cambio</th><th>Sección</th><th>Discrepancia</th><th>Estado</th></tr></thead><tbody>';
+    desf.forEach(function(d){
+      g += '<tr><td>' + esc(d.c.resumen||'') + '<div style="font-size:12px;opacity:.6">cid ' + esc(d.c.cid||'') + ' · aprobado el ' + esc(fecha(d.c.tsResuelto||d.c.ts)) + '</div></td>' +
+        '<td style="font-size:13px">' + esc(d.p.seccion) + '<div style="font-size:12px;opacity:.6">' + esc(d.p.curso) + '</div></td>' +
+        '<td style="font-size:13px">' + esc(d.dif.join(' · ')) + '</td>' +
+        '<td>' + (d.cruce
+          ? '<span class="tag tag-accent-2">Está produciendo un cruce</span>'
+          : '<span class="tag tag-neutral">Revisar si sigue vigente</span>') + '</td></tr>';
+    });
+    g += '</tbody></table>';
+  }
+
   g += '<h3 style="font-size:20px;margin-bottom:10px">Excepciones con fecha</h3>';
   if(!viv.length && !porVencer.length){
     g += '<p style="font-size:14px;opacity:.7;margin-bottom:34px">Ningún cambio temporal corriendo hoy. Los cambios sin fecha valen para todo el ciclo y viven en el historial.</p>';

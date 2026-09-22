@@ -57,6 +57,7 @@ a{color:var(--color-accent-700)}
 .btn-danger:hover{background:var(--color-accent-2-100)}
 .btn-ghost{color:var(--color-accent);padding-inline:var(--space-1)}
 .btn-block{width:100%;margin-top:var(--space-2)}
+.btn-chico{padding:5px 11px;font-size:13px;min-height:0}
 .field>label{display:block;font-size:12px;margin-bottom:5px;color:color-mix(in srgb,var(--color-text) 70%,transparent)}
 .input{width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:var(--color-text);
   caret-color:var(--color-accent);background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md)}
@@ -342,6 +343,13 @@ var AREAS = ["Académica","Comercial","Marketing","Administración","Finanzas",
 /* ══════════════════════════════════════════════════════════════ */
 
 var D = JSON.parse(document.getElementById('datos').textContent);
+/* El JSON de arriba es el RESPALDO. Si la sala tiene la pestaña PROGRAMACION
+   cargada, su contenido reemplaza a D al cargar y esa es la base que manda. */
+var BASE_RESPALDO = { filas: D.prog.length, libro: D.libro, generado: D.generado };
+var COL_BASE = ['dia','turno','tipo','aula','curso','seccion','docente','horario','activo','nota',
+                'ini','fin','tipoAula','aforo','cruce','programa','grupo','alumnos','estado','id',
+                'vigDesde','vigHasta','cadencia','fechas','crucePermitido','docentes',
+                'vigProvisional','esEvento'];
 var DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 var TURNOS = ['Mañana','Tarde','Noche'];
 /* Límites operativos acordados con Dirección Académica. Noche admite inicios
@@ -352,12 +360,17 @@ var FRANJAS = [
   {t:'Noche',  ini:'18:00', fin:'22:30', clave:'n'}
 ];
 var DIA_INI = '08:00', DIA_FIN = '22:30';
+/* Sugerencias de duracion en horas academicas de 45 min. No son un limite:
+   el campo acepta cualquier numero de minutos. */
+var DURACIONES = [45,90,135,180,225,270,315,360,405,450];
 var AFORO = D.aforoEstandar || 23;
 
 var LS = 'chiolecca.ambientes.';
 
 var S = {
   tab:'panorama', dia:'Lunes', turno:'Todos', q:'',
+  base:{origen:'archivo', filas:0, ts:'', msg:''},
+  edModo:'seccion', edSec:'', edAmb:'',
   hDia:'Todos', hIni:'08:00', hFin:'22:30', hDur:'90', hAl:'20', hTipo:'Cualquiera',
   hAula:'Cualquiera',    // filtro de un ambiente concreto en el buscador de huecos
   cambios:[],            // propuestas e historial
@@ -813,19 +826,43 @@ function sobreAforo(p){
 function pintarSync(){
   var punto = el('puntoSync'), txt = el('textoSync');
   punto.className = 'punto ' + (S.sync==='on'?'on':(S.sync==='error'?'off':''));
-  txt.textContent = S.sync==='on' ? 'Sala conectada' : (S.sync==='error' ? 'Sin conexión' : 'Sin sala compartida');
+  var estado = S.sync==='on' ? 'Sala conectada' : (S.sync==='error' ? 'Sin conexión' : 'Sin sala compartida');
+  /* Que nadie tenga que adivinar si lo que ve es la base en vivo o el respaldo. */
+  if(S.sync==='on') estado += S.base.origen==='sala' ? ' · base en la sala' : ' · base del archivo';
+  txt.textContent = estado;
 }
-function traer(cb){
+/* La base viaja solo cuando se pide (conBase): son 334 filas y no tienen
+   por qué releerse en cada sincronización de 15 segundos. */
+function traer(cb, conBase){
   if(!S.url){ S.sync='off'; pintarSync(); if(cb) cb(); return; }
-  fetch(S.url + '?t=' + Date.now())
+  fetch(S.url + '?t=' + Date.now() + (conBase ? '&base=1' : ''))
     .then(function(r){ return r.json(); })
     .then(function(j){
-      if(j && j.ok){ S.cambios = normCambios(j.cambios || []); S.sync='on'; S.syncMsg='Última sincronización '+new Date().toLocaleTimeString('es-PE'); }
+      if(j && j.ok){ S.cambios = normCambios(j.cambios || []); if(conBase) aplicarBase(j.base);
+        S.sync='on'; S.syncMsg='Última sincronización '+new Date().toLocaleTimeString('es-PE'); }
       else { S.sync='error'; S.syncMsg = (j && j.error) || 'Respuesta inesperada'; }
       pintarSync(); if(cb) cb(); render();
     })
     .catch(function(e){ S.sync='error'; S.syncMsg='No se pudo conectar: '+e.message; pintarSync(); if(cb) cb(); render(); });
 }
+/* Reemplaza la base del archivo por la de la sala. Si la sala no la tiene,
+   se queda la del archivo y se dice de dónde salió lo que se ve. */
+function aplicarBase(base){
+  if(!base || !base.prog || !base.prog.length){
+    S.base = {origen:'archivo', filas:BASE_RESPALDO.filas, ts:'',
+      msg:'La sala aún no tiene la pestaña PROGRAMACION cargada. Lo que ves sale del respaldo incrustado en el archivo.'};
+    return;
+  }
+  D.prog = base.prog;
+  if(base.aulas && base.aulas.length) D.aulas = base.aulas;
+  if(base.secciones && base.secciones.length) D.secciones = base.secciones;
+  ['generado','fuenteQ10','fuentePEC','libro','provisionalNota'].forEach(function(k){ if(base[k]) D[k] = base[k]; });
+  if(base.aforoEstandar) D.aforoEstandar = base.aforoEstandar;
+  if(base.fechasProvisionales && base.fechasProvisionales.length) D.fechasProvisionales = base.fechasProvisionales;
+  D.prog.forEach(function(p){ p.curso = titulo(p.curso); });
+  S.base = {origen:'sala', filas:base.prog.length, ts:base.leidoTs, msg:''};
+}
+
 function enviar(payload, cb){
   if(!S.url){ cb({ok:false,error:'No hay sala compartida configurada. Ve a la pestaña Datos.'}); return; }
   if(!S.sesion){ cb({ok:false,error:'Primero identifícate.'}); return; }
@@ -837,7 +874,7 @@ function enviar(payload, cb){
     body: JSON.stringify(payload)
   })
   .then(function(r){ return r.json(); })
-  .then(function(j){ if(j && j.ok){ S.cambios = j.cambios ? normCambios(j.cambios) : S.cambios; } cb(j||{ok:false,error:'Respuesta vacía'}); render(); })
+  .then(function(j){ if(j && j.ok){ S.cambios = j.cambios ? normCambios(j.cambios) : S.cambios; if(j.base) aplicarBase(j.base); } cb(j||{ok:false,error:'Respuesta vacía'}); render(); })
   .catch(function(e){ cb({ok:false,error:e.message}); });
 }
 
@@ -1672,6 +1709,53 @@ function huecos(aula, dia, act, desde, hasta, dur){
   return libres.filter(function(v){ return v[1]-v[0] >= dur; });
 }
 
+/* Por que este ambiente no admite el bloque pedido ese dia: cuanto mide el hueco
+   mas largo del rango, que dictado lo corta y en que franjas del dia si cabria. */
+function porQueNoEntra(a, dia, act, desde, hasta, dur){
+  var enRango = huecos(a.aula, dia, act, desde, hasta, 1);
+  var libre = enRango.reduce(function(m,v){ return Math.max(m, v[1]-v[0]); }, 0);
+  var enElDia = huecos(a.aula, dia, act, min(DIA_INI), min(DIA_FIN), dur);
+  var ocupa = act.filter(function(p){
+      return p.aula===a.aula && p.dia===dia && valida(min(p.ini),min(p.fin)) &&
+             min(p.ini) < hasta && min(p.fin) > desde;
+    }).sort(function(x,y){ return min(x.ini)-min(y.ini); });
+  return {aula:a.aula, tipo:a.tipo, aforo:a.aforo, dia:dia,
+          libre:libre, enElDia:enElDia, ocupa:ocupa};
+}
+
+function panelDiagnostico(diag, dur, prominente){
+  if(!diag.length) return '';
+  var TOPE = 12, lista = diag.slice(0, TOPE), h = '';
+  if(!prominente){
+    h += '<details style="margin:6px 0 10px"><summary style="font-size:13px;opacity:.65;cursor:pointer">' +
+         diag.length + ' ambiente(s) sin ventana en ese rango — ver por qué</summary>';
+  }
+  h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Qué lo impide</th>' +
+       '<th>Dónde sí entra ese día</th></tr></thead><tbody>';
+  lista.forEach(function(d){
+    var corta = d.ocupa.map(function(p){
+      return esc(p.horario)+' · '+esc(p.seccion||p.curso);
+    }).join('<br>');
+    var impide = d.libre
+      ? 'El hueco más largo del rango es de <strong>'+d.libre+' min</strong> y pediste '+dur+'.' +
+        (corta ? '<br><span style="opacity:.7">Lo corta: '+corta+'</span>' : '')
+      : 'Ocupado todo el rango.' + (corta ? '<br><span style="opacity:.7">'+corta+'</span>' : '');
+    var donde = d.enElDia.length
+      ? d.enElDia.slice(0,3).map(function(v){ return hhmm(v[0])+' – '+hhmm(v[1]); }).join('<br>') +
+        (d.enElDia.length>3 ? '<br><span style="opacity:.55">+'+(d.enElDia.length-3)+' más</span>' : '')
+      : '<span style="opacity:.6">En ningún momento del día</span>';
+    h += '<tr><td>'+esc(d.dia)+'</td><td><strong>'+esc(d.aula)+'</strong></td>' +
+      '<td style="font-size:13px">'+impide+'</td><td style="font-size:13px">'+donde+'</td></tr>';
+  });
+  h += '</tbody></table>';
+  if(diag.length > TOPE){
+    h += '<p style="font-size:12px;opacity:.6;margin:6px 0 0">Se muestran '+TOPE+' de '+diag.length +
+         '. Filtra por día o por ambiente para ver el resto.</p>';
+  }
+  if(!prominente) h += '</details>';
+  return h;
+}
+
 function vLibres(){
   var act = activos();
   var g = '<h2 class="titulo">Aulas libres</h2>' +
@@ -1684,7 +1768,12 @@ function vLibres(){
       DIAS.map(function(d){ return '<option'+(d===S.hDia?' selected':'')+'>'+d+'</option>'; }).join('') + '</select></div>' +
     '<div class="field"><label>Entre</label><input class="input" id="hIni" type="time" value="'+esc(S.hIni)+'" style="width:130px"></div>' +
     '<div class="field"><label>y</label><input class="input" id="hFin" type="time" value="'+esc(S.hFin)+'" style="width:130px"></div>' +
-    '<div class="field"><label>Duración (min)</label><input class="input" id="hDur" type="number" value="'+esc(S.hDur)+'" step="15" min="30" style="width:110px"></div>' +
+    '<div class="field"><label>Duración (min)</label>' +
+      '<input class="input" id="hDur" type="number" value="'+esc(S.hDur)+'" step="5" min="10" list="hDurSug" style="width:120px">' +
+      '<datalist id="hDurSug">' + DURACIONES.map(function(m){
+        return '<option value="'+m+'">'+(m/45)+' h académica'+(m===45?'':'s')+'</option>'; }).join('') + '</datalist>' +
+      '<button type="button" id="hDurTodo" style="margin-top:5px;padding:0;border:0;background:none;font:inherit;font-size:12px;' +
+      'color:var(--color-accent);cursor:pointer;text-decoration:underline">usar todo el rango</button></div>' +
     '<div class="field"><label>Alumnos</label><input class="input" id="hAl" type="number" value="'+esc(S.hAl)+'" min="1" style="width:100px"></div>' +
     '<div class="field"><label>Tipo de ambiente</label><select class="input" id="hTipo">' +
       ['Cualquiera'].concat(tiposAmbiente()).map(function(x){ return '<option'+(x===S.hTipo?' selected':'')+'>'+esc(x)+'</option>'; }).join('') +
@@ -1728,8 +1817,15 @@ function vLibres(){
       el('hRes').innerHTML = '<div class="aviso">Revisa el rango de horas: la segunda debe ser posterior a la primera.</div>';
       return;
     }
+    /* El rango no da ni para un bloque: se dice antes de buscar, con la cuenta hecha. */
+    var avisoRango = (hasta - desde) < dur
+      ? '<div class="aviso"><b>El rango es más corto que la duración.</b> Pediste ' + dur +
+        ' min dentro de una ventana de ' + (hasta - desde) + ' min (' + esc(S.hIni) + ' a ' + esc(S.hFin) +
+        '). Para que entre, empieza a las ' + hhmm(hasta - dur) + ' o antes, o baja la duración a ' +
+        (hasta - desde) + ' min con «usar todo el rango».</div>'
+      : '';
     var dias = S.hDia==='Todos' ? DIAS : [S.hDia];
-    var filas = [], motivos = [];
+    var filas = [], motivos = [], diag = [];
     D.aulas.forEach(function(a){
       if(S.hAula!=='Cualquiera' && a.aula!==S.hAula){ return; }
       if(a.bloqueada){ motivos.push(a.aula+': '+a.bloqueada); return; }
@@ -1738,6 +1834,7 @@ function vLibres(){
       dias.forEach(function(d){
         var vs = huecos(a.aula, d, act, desde, hasta, dur);
         if(vs.length) filas.push({aula:a.aula, tipo:a.tipo, aforo:a.aforo, dia:d, vs:vs});
+        else diag.push(porQueNoEntra(a, d, act, desde, hasta, dur));
       });
     });
     filas.sort(function(x,y){
@@ -1777,10 +1874,12 @@ function vLibres(){
       : '';
 
     if(!filas.length){
-      el('hRes').innerHTML = '<div class="aviso"><b>No hay ninguna ventana libre con esos criterios.</b> Prueba con menos duración, otro rango de horas, o quitando el filtro de tipo, de aforo o de ambiente.</div>' + descarte + ficha;
+      var cabeza = avisoRango ||
+        '<div class="aviso"><b>Ninguna ventana libre cumple lo que pediste.</b> Abajo, ambiente por ambiente, qué lo impide y en qué franjas de ese día sí entraría.</div>';
+      el('hRes').innerHTML = cabeza + panelDiagnostico(diag, dur, true) + descarte + ficha;
       return;
     }
-    var h = '<p style="font-size:13px;opacity:.65;margin:6px 0 10px">' + filas.length + ' opción(es), ordenadas por día y por el aforo más ajustado primero.</p>' + descarte;
+    var h = avisoRango + '<p style="font-size:13px;opacity:.65;margin:6px 0 10px">' + filas.length + ' opción(es), ordenadas por día y por el aforo más ajustado primero.</p>' + descarte + panelDiagnostico(diag, dur, false);
     h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Tipo</th><th style="text-align:right">Aforo</th><th>Ventanas libres de '+dur+' min o más</th></tr></thead><tbody>';
     filas.forEach(function(f){
       h += '<tr><td>'+esc(f.dia)+'</td><td><strong>'+esc(f.aula)+'</strong></td><td>'+esc(f.tipo)+'</td>' +
@@ -1804,6 +1903,10 @@ function vLibres(){
   ['hDia','hIni','hFin','hDur','hAl','hTipo','hAula'].forEach(function(id){
     el(id).onchange = recalcular; el(id).oninput = recalcular;
   });
+  el('hDurTodo').onclick = function(){
+    var ancho = min(el('hFin').value) - min(el('hIni').value);
+    if(ancho > 0){ el('hDur').value = ancho; recalcular(); }
+  };
   recalcular();
 }
 function tiposAmbiente(){
@@ -2095,8 +2198,24 @@ function vDatos(){
   g += '<p style="font-size:13.5px;opacity:.75;max-width:66ch;margin:10px 0 0">El respaldo trae las ' + matrizCambios().length + ' filas de la sala con todas sus columnas, incluidas la vigencia y el alcance. «Copiar» lo deja en el portapapeles listo para pegar en una hoja nueva de Google Sheets (Ctrl+V y cada columna cae en su celda).</p>';
 
   g += '<div class="regla-fina" style="margin:30px 0 20px"></div>';
-  g += '<h3 style="font-size:20px">Actualizar la programación base</h3>';
-  g += '<p style="font-size:14px;opacity:.75;max-width:66ch;margin:8px 0">La base sale del libro <strong>'+esc(D.libro)+'</strong>, hoja PROGRAMACIÓN EDITABLE, y viene incrustada en este archivo. Para cambiar el ciclo o el horario madre se regenera el archivo y se vuelve a subir al repositorio; el historial de cambios, que vive en la hoja de Google, no se toca.</p>';
+  g += '<h3 style="font-size:20px">La programación base</h3>';
+  if(S.base.origen==='sala'){
+    g += '<div class="aviso ok"><b>La base vive en la sala.</b> ' + S.base.filas +
+         ' dictados leídos de la pestaña PROGRAMACION' + (S.base.ts ? ' el '+esc(fecha(S.base.ts)) : '') +
+         '. Lo que edites ahí es lo que ve todo el equipo: ya no hay que regenerar el archivo.</div>';
+  } else {
+    g += '<div class="aviso"><b>Estás viendo el respaldo del archivo</b> (' + BASE_RESPALDO.filas +
+         ' dictados del libro ' + esc(BASE_RESPALDO.libro) + ').' +
+         (S.base.msg ? ' ' + esc(S.base.msg) : ' Conecta la sala para leer la base en vivo.') + '</div>';
+  }
+  g += '<p style="font-size:14px;opacity:.75;max-width:66ch;margin:8px 0">Corte: <strong>'+esc(D.generado||'—')+
+       '</strong> · fuente: '+esc(D.fuenteQ10||'—')+'. El archivo guarda una copia de la base como respaldo; si la sala responde, manda la sala.</p>';
+  g += '<div class="barra-filtros" style="margin-top:12px">' +
+    '<button class="btn btn-secondary" id="bRecargar">Recargar la base desde la sala</button>' +
+    '<button class="btn btn-secondary" id="bBaseCsv">Descargar la base (CSV)</button>' +
+    '<button class="btn btn-secondary" id="bBaseTsv">Copiar la base para Google Sheets</button></div>';
+  g += '<p style="font-size:13.5px;opacity:.75;max-width:66ch;margin:10px 0 0">La descarga trae los '+D.prog.length+
+       ' dictados con todas sus columnas, en el mismo orden que la pestaña PROGRAMACION: sirve de respaldo, para cargar a Q10 y para volver a sembrar la hoja si hiciera falta.</p>';
 
   g += '<div class="regla-fina" style="margin:30px 0 20px"></div>';
   g += '<h3 style="font-size:20px">Editores</h3>';
@@ -2110,9 +2229,12 @@ function vDatos(){
   el('dGuardar').onclick = function(){
     S.url = el('dUrl').value.trim();
     localStorage.setItem(LS+'url', S.url);
-    traer();
+    traer(null, true);
   };
-  el('dSync').onclick = function(){ traer(); };
+  el('dSync').onclick = function(){ traer(null, true); };
+  el('bRecargar').onclick = function(){ traer(null, true); };
+  el('bBaseCsv').onclick = function(){ csv(matrizBase(), 'base-programacion.csv'); };
+  el('bBaseTsv').onclick = function(){ copiarTsv(matrizBase(), el('bBaseTsv')); };
   el('eProg').onclick = function(){
     var filas = [['Día','Turno','Inicio','Fin','Ambiente','Sección','Curso','Docente','Programa','Grupo Q10','Alumnos','Aforo','Activo']];
     vigente().forEach(function(p){ filas.push([p.dia,p.turno,p.ini,p.fin,p.aula,p.seccion,p.curso,p.docente,p.programa,p.grupo,p.alumnos,p.aforo,p.activo]); });
@@ -2122,6 +2244,23 @@ function vDatos(){
   el('eTsv').onclick = function(){ copiarTsv(matrizCambios(), el('eTsv')); };
   el('ePrint').onclick = function(){ window.print(); };
 }
+/* La base en forma de tabla, con las columnas exactas de la pestaña
+   PROGRAMACION: lo que sale de aquí se puede volver a pegar allá. */
+function matrizBase(){
+  var filas = [COL_BASE.slice()];
+  D.prog.forEach(function(p){
+    filas.push(COL_BASE.map(function(c){
+      var v = p[c];
+      if(v===undefined || v===null) return '';
+      if(Object.prototype.toString.call(v)==='[object Array]') return v.join(', ');
+      if(v===true) return 'SI';
+      if(v===false) return 'NO';
+      return String(v);
+    }));
+  });
+  return filas;
+}
+
 /* Respaldo de la sala: una fila por cambio y todas las columnas, para
    pegar en una hoja de Google. Las fechas van en ISO para que Sheets
    las reconozca, y la vigencia va tambien en texto legible. */
@@ -2285,11 +2424,278 @@ function pintarSemana(){
 }
 
 /* ---------- armado general ---------- */
+/* ---------- editor de horarios (fase 2) ----------
+   Dirección Académica crea, edita y da de baja dictados aquí mismo.
+   Quien no es admin ve la programación en modo lectura y la ruta para
+   proponer, que es la que ya existía. Nada se borra: dar de baja pone
+   activo = NO y la fila se queda con su historia. */
+
+var TIPOS_DICTADO = ['CARRERA','GT15','PEC','PI','TALLER','CURSO CORTO','FONDO EMPLEO','EVENTO'];
+
+function soyAdmin(){ return !!(S.sesion && S.sesion.rol === 'admin'); }
+
+function clavesDeBase(campo){
+  var v = {};
+  D.prog.forEach(function(p){ if(p[campo]) v[p[campo]] = 1; });
+  return Object.keys(v).sort();
+}
+
+function aulasDelCatalogo(){
+  var l = D.aulas.map(function(a){ return a.aula; });
+  if(l.indexOf('VIRTUAL') < 0) l.push('VIRTUAL');
+  return l;
+}
+
+/* Los bloques del sujeto elegido, ordenados por día y hora. */
+function bloquesDe(modo, valor){
+  var campo = modo === 'ambiente' ? 'aula' : 'seccion';
+  return D.prog.filter(function(p){ return p[campo] === valor; })
+    .sort(function(a,b){
+      var da = DIAS.indexOf(a.dia), db = DIAS.indexOf(b.dia);
+      if(da !== db) return da - db;
+      return (min(a.ini)||0) - (min(b.ini)||0);
+    });
+}
+
+function vigenciaCorta(p){
+  if(p.fechas && p.fechas.length) return p.fechas.length + ' fecha(s)';
+  if(!p.vigDesde && !p.vigHasta) return 'Todo el ciclo';
+  if(p.vigDesde && p.vigHasta) return p.vigDesde + ' → ' + p.vigHasta;
+  return p.vigHasta ? 'hasta ' + p.vigHasta : 'desde ' + p.vigDesde;
+}
+
+function vHorarios(){
+  var modo = S.edModo || 'seccion';
+  var lista = modo === 'ambiente' ? aulasDelCatalogo() : clavesDeBase('seccion');
+  var valor = modo === 'ambiente' ? (S.edAmb || lista[0]) : (S.edSec || lista[0]);
+  if(lista.indexOf(valor) < 0) valor = lista[0];
+
+  var g = '<h2 class="titulo">Horarios</h2>';
+  if(soyAdmin()){
+    g += '<p class="entrada">Crea, edita y da de baja dictados directo en la base. Cada cambio queda en la bitácora de la hoja, con lo que decía antes y lo que dice ahora.</p>';
+  } else {
+    g += '<div class="aviso">Estás en modo lectura. Para cambiar algo, usa <strong>Reprogramar</strong> desde la grilla o los ambientes: queda como propuesta y Dirección Académica la resuelve.</div>';
+  }
+
+  g += '<div class="barra-filtros">' +
+    '<div class="field"><label>Ver por</label><select class="input" id="hzModo" style="width:150px">' +
+      '<option value="seccion"'+(modo==='seccion'?' selected':'')+'>Sección</option>' +
+      '<option value="ambiente"'+(modo==='ambiente'?' selected':'')+'>Ambiente</option>' +
+    '</select></div>' +
+    '<div class="field"><label>'+(modo==='ambiente'?'Ambiente':'Sección')+'</label><select class="input" id="hzValor" style="width:210px">' +
+      lista.map(function(v){ return '<option value="'+esc(v)+'"'+(v===valor?' selected':'')+'>'+esc(v)+'</option>'; }).join('') +
+    '</select></div>' +
+    (soyAdmin() ? '<button class="btn btn-primary" id="hzNuevo" style="align-self:flex-end">Agregar dictado</button>' : '') +
+    '</div>';
+
+  var bl = bloquesDe(modo, valor);
+  var activosN = bl.filter(function(p){ return p.activo === 'SÍ'; }).length;
+  g += '<p style="font-size:13px;opacity:.65;margin:4px 0 16px">' + bl.length + ' bloque(s) registrados · ' +
+       activosN + ' activo(s) · ' + (bl.length - activosN) + ' de baja.</p>';
+
+  DIAS.forEach(function(d){
+    var dd = bl.filter(function(p){ return p.dia === d; });
+    g += '<h3 style="font-size:17px;margin:22px 0 6px">' + d +
+         (dd.length ? '' : ' <span style="font-size:13px;font-weight:400;opacity:.5">— libre</span>') + '</h3>';
+    if(dd.length){
+      g += '<table class="table"><thead><tr><th>Hora</th><th>' +
+           (modo==='ambiente' ? 'Sección' : 'Ambiente') +
+           '</th><th>Curso</th><th>Docente</th><th>Alum.</th><th>Vigencia</th><th></th></tr></thead><tbody>';
+      dd.forEach(function(p){
+        var baja = p.activo !== 'SÍ';
+        g += '<tr'+(baja?' style="opacity:.5"':'')+'>' +
+          '<td style="white-space:nowrap">'+esc(p.ini)+'–'+esc(p.fin)+'</td>' +
+          '<td><strong>'+esc(modo==='ambiente' ? p.seccion : p.aula)+'</strong>' +
+            (baja?' <span class="tag tag-neutral">de baja</span>':'')+'</td>' +
+          '<td style="font-size:13px">'+esc(p.curso)+'</td>' +
+          '<td style="font-size:13px">'+esc(p.docente)+'</td>' +
+          '<td>'+esc(p.alumnos)+'</td>' +
+          '<td style="font-size:12.5px;opacity:.8">'+esc(vigenciaCorta(p))+'</td>' +
+          '<td style="text-align:right;white-space:nowrap">' +
+            (soyAdmin() ? '<button class="btn btn-secondary btn-chico" data-ed="'+esc(p.id)+'">Editar</button>' : '') +
+          '</td></tr>';
+      });
+      g += '</tbody></table>';
+    }
+    if(soyAdmin()){
+      g += '<button class="btn btn-secondary btn-chico" data-nuevo="'+esc(d)+'" style="margin-top:6px">Agregar bloque el '+d.toLowerCase()+'</button>';
+    }
+  });
+
+  el('vista').innerHTML = g;
+
+  el('hzModo').onchange = function(){ S.edModo = this.value; render(); };
+  el('hzValor').onchange = function(){
+    if((S.edModo||'seccion')==='ambiente') S.edAmb = this.value; else S.edSec = this.value;
+    render();
+  };
+  if(soyAdmin()){
+    el('hzNuevo').onclick = function(){ abrirEditor(null, {}); };
+    document.querySelectorAll('[data-ed]').forEach(function(b){
+      b.onclick = function(){
+        var p = D.prog.filter(function(x){ return String(x.id)===b.dataset.ed; })[0];
+        if(p) abrirEditor(p, {});
+      };
+    });
+    document.querySelectorAll('[data-nuevo]').forEach(function(b){
+      b.onclick = function(){
+        var pre = {dia: b.dataset.nuevo};
+        if((S.edModo||'seccion')==='ambiente') pre.aula = valor; else pre.seccion = valor;
+        abrirEditor(null, pre);
+      };
+    });
+  }
+}
+
+/* Formulario de alta y edición. p = null para crear. */
+function abrirEditor(p, pre){
+  var esNuevo = !p;
+  var v = p || {};
+  function dato(c){ return pre[c] !== undefined ? pre[c] : (v[c] || ''); }
+
+  function campo(id, etiqueta, valor, ancho, tipo){
+    return '<div class="field" style="min-width:'+(ancho||150)+'px">' +
+      '<label>'+etiqueta+'</label><input class="input" id="'+id+'" type="'+(tipo||'text')+'" value="'+esc(valor)+'"></div>';
+  }
+  function selec(id, etiqueta, valor, opciones, ancho){
+    return '<div class="field" style="min-width:'+(ancho||150)+'px">' +
+      '<label>'+etiqueta+'</label><select class="input" id="'+id+'">' +
+      opciones.map(function(o){ return '<option value="'+esc(o)+'"'+(String(o)===String(valor)?' selected':'')+'>'+esc(o)+'</option>'; }).join('') +
+      '</select></div>';
+  }
+
+  var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">Programación</div>' +
+    '<h2 style="font-size:27px;margin-top:4px">'+(esNuevo?'Agregar un dictado':'Editar el dictado')+'</h2>' +
+    (esNuevo ? '' : '<p style="font-size:13px;opacity:.6;margin-top:6px">'+esc(v.seccion)+' · '+esc(v.curso)+' · id '+esc(v.id)+'</p>') +
+    '</div><div class="panel-cuerpo">';
+
+  g += '<div class="barra-filtros">' +
+    selec('edDia','Día', dato('dia') || DIAS[0], DIAS, 140) +
+    campo('edIni','Inicio', dato('ini'), 110) +
+    campo('edFin','Fin', dato('fin'), 110) +
+    selec('edAula','Ambiente', dato('aula') || aulasDelCatalogo()[0], aulasDelCatalogo(), 150) +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edSeccion','Sección', dato('seccion'), 170) +
+    campo('edCurso','Curso', dato('curso'), 260) +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edDocente','Docente', dato('docente'), 240) +
+    campo('edAlumnos','Alumnos', dato('alumnos'), 110) +
+    selec('edTipo','Tipo', dato('tipo') || 'CARRERA', TIPOS_DICTADO, 160) +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edPrograma','Programa', dato('programa'), 130) +
+    campo('edGrupo','Grupo Q10', dato('grupo'), 200) +
+    selec('edActivo','Activo', dato('activo') || 'SÍ', ['SÍ','NO'], 110) +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edDesde','Vigente desde', dato('vigDesde'), 150, 'date') +
+    campo('edHasta','Vigente hasta', dato('vigHasta'), 150, 'date') +
+    '</div>';
+  g += '<p style="font-size:12.5px;opacity:.6;margin:-4px 0 14px">Deja la vigencia vacía si el dictado corre todo el ciclo.</p>';
+  g += '<div class="field"><label>Nota</label><textarea class="input" id="edNota" rows="3">'+esc(dato('nota'))+'</textarea></div>';
+
+  g += '<div id="edAviso" style="margin-top:14px"></div>';
+  g += '<div class="barra-filtros" style="margin-top:18px">' +
+    '<button class="btn btn-primary" id="edGuardar">'+(esNuevo?'Crear el dictado':'Guardar los cambios')+'</button>' +
+    (esNuevo ? '' : '<button class="btn btn-secondary" id="edBaja">Dar de baja</button>') +
+    '<button class="btn btn-secondary" id="edCerrar">Cancelar</button></div>';
+  g += '</div>';
+
+  abrirPanel(g);
+
+  function leerForm(){
+    return {
+      dia: el('edDia').value, ini: el('edIni').value.trim(), fin: el('edFin').value.trim(),
+      aula: el('edAula').value, seccion: el('edSeccion').value.trim().toUpperCase(),
+      curso: el('edCurso').value.trim(), docente: el('edDocente').value.trim(),
+      alumnos: el('edAlumnos').value.trim(), tipo: el('edTipo').value,
+      programa: el('edPrograma').value.trim().toUpperCase(), grupo: el('edGrupo').value.trim(),
+      activo: el('edActivo').value, vigDesde: el('edDesde').value, vigHasta: el('edHasta').value,
+      nota: el('edNota').value.trim()
+    };
+  }
+
+  /* Los cruces se calculan mientras escribe: el servidor los vuelve a
+     revisar, pero verlos antes evita el viaje. */
+  function revisar(){
+    var o = leerForm(), msg = [];
+    var a = min(o.ini), b = min(o.fin);
+    if(!valida(a,b)) msg.push('Escribe las horas como HH:MM.');
+    else if(b <= a) msg.push('La hora de fin debe ser posterior al inicio.');
+    if(!o.seccion) msg.push('Falta la sección.');
+    if(!o.curso) msg.push('Falta el curso.');
+    var choques = [];
+    if(valida(a,b) && b > a && o.activo === 'SÍ' && o.aula !== 'VIRTUAL'){
+      activos().forEach(function(q){
+        if(String(q.id) === String(v.id)) return;
+        if(q.aula !== o.aula || q.dia !== o.dia) return;
+        var qa = min(q.ini), qb = min(q.fin);
+        if(!valida(qa,qb)) return;
+        if(qa < b && a < qb) choques.push(q.seccion + ' (' + q.horario + ', ' + q.curso + ')');
+      });
+    }
+    var amb = D.aulas.filter(function(x){ return x.aula === o.aula; })[0];
+    var n = parseInt(o.alumnos,10), af = amb ? parseInt(amb.aforo,10) : NaN;
+    var h = '';
+    if(msg.length) h += '<div class="aviso">' + msg.map(esc).join(' ') + '</div>';
+    if(choques.length) h += '<div class="aviso"><b>Choca con ' + choques.length + ' dictado(s):</b> ' +
+      choques.map(esc).join(' · ') + '. Si el solape está autorizado, al guardar te pediré confirmarlo.</div>';
+    if(!isNaN(n) && !isNaN(af) && n > af) h += '<div class="aviso"><b>Sobre aforo:</b> ' + n +
+      ' alumnos en un ambiente de ' + af + (amb.capacidad ? ' (capacidad física ' + esc(amb.capacidad) + ')' : '') + '.</div>';
+    el('edAviso').innerHTML = h;
+    return {errores: msg, choques: choques};
+  }
+
+  ['edDia','edIni','edFin','edAula','edAlumnos','edActivo','edSeccion','edCurso'].forEach(function(id){
+    el(id).onchange = revisar; el(id).oninput = revisar;
+  });
+  revisar();
+
+  el('edCerrar').onclick = cerrarPanel;
+
+  function guardar(forzar){
+    var r = revisar();
+    if(r.errores.length){ alert('Corrige primero: ' + r.errores.join(' ')); return; }
+    var o = leerForm();
+    var resumen = o.seccion + ' — ' + o.dia + ' ' + o.ini + '-' + o.fin + ' en ' + o.aula;
+    el('edGuardar').disabled = true;
+    enviar({accion: esNuevo ? 'base-crear' : 'base-editar',
+            id: esNuevo ? '' : v.id, dictado: o, forzar: !!forzar, resumen: resumen},
+      function(res){
+        el('edGuardar').disabled = false;
+        if(res.ok){ cerrarPanel(); S.tab='horarios'; render(); return; }
+        if(res.cruce && res.cruce.length && !forzar){
+          if(confirm(res.error + '\n\n¿Registrarlo igual como solape autorizado?')) guardar(true);
+          return;
+        }
+        alert('No se pudo guardar: ' + (res.error || 'error desconocido'));
+      });
+  }
+  el('edGuardar').onclick = function(){ guardar(false); };
+
+  if(!esNuevo){
+    el('edBaja').onclick = function(){
+      var motivo = prompt('¿Por qué se da de baja? Queda en la nota del dictado.', '');
+      if(motivo === null) return;
+      var nota = 'DE BAJA el ' + hoyIso() + (motivo.trim() ? ': ' + motivo.trim() : '') + '.';
+      enviar({accion:'base-baja', id: v.id, nota: nota,
+              resumen: v.seccion + ' — baja del ' + v.dia + ' ' + v.horario + ' en ' + v.aula},
+        function(res){
+          if(res.ok){ cerrarPanel(); render(); }
+          else alert('No se pudo dar de baja: ' + (res.error || 'error desconocido'));
+        });
+    };
+  }
+}
+
 var TABS = [
   ['panorama','Panorama',vPanorama],
   ['grilla','Grilla del día',vGrilla],
   ['ambientes','Ambientes',vAmbientes],
   ['libres','Aulas libres',vLibres],
+  ['horarios','Horarios',vHorarios],
   ['docentes','Docentes',vDocentes],
   ['alertas','Alertas',vAlertas],
   ['cambios','Cambios',vCambios],
@@ -2337,8 +2743,9 @@ window.addEventListener('resize', function(){
   anchoPrevio = window.innerWidth;
   if(m1 !== m2) render();     // solo si cruzó el umbral: evita redibujar en cada píxel
 });
-if(S.url) traer();
-setInterval(function(){ if(S.url) traer(); }, 15000);
+S.base = {origen:'archivo', filas:BASE_RESPALDO.filas, ts:'', msg:''};
+if(S.url) traer(null, true);          /* la primera lectura trae la base */
+setInterval(function(){ if(S.url) traer(); }, 15000);   /* el resto, solo los cambios */
 })();
 </script>
 </body>

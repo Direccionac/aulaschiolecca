@@ -727,6 +727,25 @@ function eventos(sem){
   });
 }
 function activos(){ return vigente().filter(function(p){return p.activo==='SÍ' && p.enFecha!==false;}); }
+
+/* Docentes del padrón oficial (tablero de Dirección): solo llegan los nombres, nunca tarifas.
+   Se ofrecen como sugerencia al escribir el docente; se puede seguir escribiendo cualquier nombre. */
+var URL_DOCENTES = 'https://script.google.com/macros/s/AKfycbzkplgTRwDINbHUvHTWr0xXnz189-qwAbcfzdQb8lmUTuw6Nmyiy06FB5ArTeTWUsez/exec?a=docentes';
+var DOC_PADRON = [];
+function llenarDocentes(){
+  var dl = document.getElementById('dlDocentes');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'dlDocentes'; document.body.appendChild(dl); }
+  var set = {};
+  DOC_PADRON.forEach(function(n){ set[n] = 1; });
+  try { activos().forEach(function(p){ if (p.docente && !p.esEvento) set[p.docente] = 1; }); } catch (e) {}
+  dl.innerHTML = Object.keys(set).sort().map(function(n){ return '<option value="'+esc(n)+'">'; }).join('');
+}
+fetch(URL_DOCENTES).then(function(r){ return r.json(); })
+  .then(function(j){ if (j && j.ok && j.docentes) DOC_PADRON = j.docentes; })
+  .catch(function(){}).then(function(){ try { llenarDocentes(); } catch (e) {} });
+document.addEventListener('focusin', function(e){
+  if (e.target && e.target.getAttribute && e.target.getAttribute('list') === 'dlDocentes') llenarDocentes();
+});
 function pendientes(){ return S.cambios.filter(function(c){return c.estado==='pendiente';}); }
 
 /* ---------- cambios permanentes que ya no calzan con la base ----------
@@ -1313,7 +1332,7 @@ function abrirColocar(aula, dia, desde, hasta, dur){
     '<div class="field"><label>Área que lo solicita</label><select class="input" id="eArea">' +
       AREAS.map(function(a){ return '<option'+(a==='Académica'?' selected':'')+'>'+esc(a)+'</option>'; }).join('') +
       '</select></div>' +
-    '<div class="field"><label>Responsable</label><input class="input" id="eDocente" placeholder="Quién lo dirige"></div>' +
+    '<div class="field"><label>Responsable</label><input class="input" id="eDocente" list="dlDocentes" autocomplete="off" placeholder="Quién lo dirige"></div>' +
     '</div>' +
     '<div class="rejilla-campos" style="margin-top:10px">' +
     '<div class="field"><label>Asistentes</label><input class="input" id="eAlumnos" type="number" min="1" value="20"></div>' +
@@ -2627,7 +2646,7 @@ function abrirEditor(p, pre){
     campo('edCurso','Curso', dato('curso'), 260) +
     '</div>';
   g += '<div class="barra-filtros">' +
-    campo('edDocente','Docente', dato('docente'), 240) +
+    campo('edDocente','Docente', dato('docente'), 240).replace('<input ','<input list="dlDocentes" autocomplete="off" ') +
     campo('edAlumnos','Alumnos', dato('alumnos'), 110) +
     selec('edTipo','Tipo', dato('tipo') || 'CARRERA', TIPOS_DICTADO, 160) +
     '</div>';
@@ -2925,7 +2944,7 @@ function abrirReserva(){
     '<div class="field" style="min-width:180px"><label>Sección o clave</label><input class="input" id="rvSeccion" type="text" value=""></div>' +
     '</div>';
   g += '<div class="barra-filtros">' +
-    '<div class="field" style="min-width:240px"><label>Docente o responsable</label><input class="input" id="rvDocente" type="text" value=""></div>' +
+    '<div class="field" style="min-width:240px"><label>Docente o responsable</label><input class="input" id="rvDocente" list="dlDocentes" autocomplete="off" type="text" value=""></div>' +
     '<div class="field" style="min-width:110px"><label>Alumnos</label><input class="input" id="rvAlumnos" type="number" min="0" value=""></div>' +
     '<div class="field" style="min-width:170px"><label>Tipo</label><select class="input" id="rvTipo">' +
       TIPOS_DICTADO.map(function(t){ return '<option value="'+esc(t)+'"'+(t==='FONDO EMPLEO'?' selected':'')+'>'+esc(t)+'</option>'; }).join('') +

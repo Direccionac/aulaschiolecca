@@ -371,6 +371,7 @@ var S = {
   tab:'panorama', dia:'Lunes', turno:'Todos', q:'',
   base:{origen:'archivo', filas:0, ts:'', msg:''},
   edModo:'seccion', edSec:'', edAmb:'',
+  dpFranja:'Noche', dpIni:'18:00', dpFin:'22:30', dpTipo:'Cualquiera', dpAforo:'', dpRef:'',
   hDia:'Todos', hIni:'08:00', hFin:'22:30', hDur:'90', hAl:'20', hTipo:'Cualquiera',
   hAula:'Cualquiera',    // filtro de un ambiente concreto en el buscador de huecos
   cambios:[],            // propuestas e historial
@@ -2529,7 +2530,8 @@ function vHorarios(){
     '<div class="field"><label>'+(modo==='ambiente'?'Ambiente':'Sección')+'</label><select class="input" id="hzValor" style="width:210px">' +
       lista.map(function(v){ return '<option value="'+esc(v)+'"'+(v===valor?' selected':'')+'>'+esc(v)+'</option>'; }).join('') +
     '</select></div>' +
-    (soyAdmin() ? '<button class="btn btn-primary" id="hzNuevo" style="align-self:flex-end">Agregar dictado</button>' : '') +
+    (soyAdmin() ? '<button class="btn btn-primary" id="hzNuevo" style="align-self:flex-end">Agregar dictado</button>' +
+      '<button class="btn btn-secondary" id="hzReserva" style="align-self:flex-end">Reservar ambiente varios días</button>' : '') +
     '</div>';
 
   var bl = bloquesDe(modo, valor);
@@ -2575,6 +2577,7 @@ function vHorarios(){
   };
   if(soyAdmin()){
     el('hzNuevo').onclick = function(){ abrirEditor(null, {}); };
+    el('hzReserva').onclick = abrirReserva;
     document.querySelectorAll('[data-ed]').forEach(function(b){
       b.onclick = function(){
         var p = D.prog.filter(function(x){ return String(x.id)===b.dataset.ed; })[0];
@@ -2734,11 +2737,309 @@ function abrirEditor(p, pre){
   }
 }
 
+/* ---------- disponibilidad por franja (panorama semanal) ----------
+   La pestaña Aulas libres busca huecos de una duración; esto responde la
+   otra pregunta, la de armar un ciclo: qué ambientes están libres TODA la
+   franja, día por día. Aplica vigencias a la fecha de referencia, así que
+   un programa que ya cerró deja de ocupar. */
+
+function franjaActual(){
+  var f = S.dpFranja || 'Noche';
+  if(f === 'Personalizada') return {t:'Personalizada', ini:S.dpIni||'18:30', fin:S.dpFin||'22:15'};
+  var x = FRANJAS.filter(function(q){ return q.t === f; })[0] || FRANJAS[2];
+  return {t:x.t, ini:x.ini, fin:x.fin};
+}
+
+/* Bloques vigentes en la semana de la fecha de referencia, por día y aula. */
+function ocupacionSemana(ref){
+  /* enFecha es lo que descarta lo ya cerrado y los bootcamps fuera de su
+     fecha: sin ese filtro un programa vencido seguiría ocupando el aula. */
+  var vivos = vigente(semanaDe(ref)).filter(function(p){
+    return p.activo === 'SÍ' && p.enFecha !== false;
+  });
+  var mapa = {};
+  vivos.forEach(function(p){
+    var k = p.dia + '|' + p.aula;
+    (mapa[k] = mapa[k] || []).push(p);
+  });
+  return mapa;
+}
+
+function matrizDisponibilidad(){
+  var fr = franjaActual(), a = min(fr.ini), b = min(fr.fin);
+  var ref = S.dpRef || hoyIso();
+  var mapa = ocupacionSemana(ref);
+  var minAf = parseInt(S.dpAforo, 10);
+  var ambientes = D.aulas.filter(function(x){
+    if(S.dpTipo && S.dpTipo !== 'Cualquiera' && x.tipo !== S.dpTipo) return false;
+    if(!isNaN(minAf)){ var af = parseInt(x.aforo, 10); if(isNaN(af) || af < minAf) return false; }
+    return true;
+  });
+  return ambientes.map(function(x){
+    var fila = {aula: x.aula, tipo: x.tipo, aforo: x.aforo, bloqueada: x.bloqueada || '', dias: {}};
+    DIAS.forEach(function(d){
+      var choques = (mapa[d + '|' + x.aula] || []).filter(function(p){
+        var pi = min(p.ini), pf = min(p.fin);
+        return valida(pi, pf) && pi < b && a < pf;
+      }).sort(function(u,v){ return min(u.ini) - min(v.ini); });
+      fila.dias[d] = choques;
+    });
+    return fila;
+  });
+}
+
+function vDisponibilidad(){
+  var fr = franjaActual();
+  var ref = S.dpRef || hoyIso();
+  var filas = matrizDisponibilidad();
+
+  var g = '<h2 class="titulo">Disponibilidad por franja</h2>';
+  g += '<p class="entrada">Qué ambientes quedan libres <strong>toda</strong> la franja, día por día. ' +
+       'Es la foto para armar un ciclo nuevo: la pestaña Aulas libres busca huecos sueltos, esta responde ' +
+       'qué está realmente disponible. Las vigencias se aplican a la fecha que elijas, así que un programa ' +
+       'que ya cerró deja de ocupar.</p>';
+
+  g += '<div class="barra-filtros">' +
+    '<div class="field"><label>Franja</label><select class="input" id="dpFranja" style="width:160px">' +
+      ['Mañana','Tarde','Noche','Personalizada'].map(function(o){
+        return '<option value="'+o+'"'+(o===(S.dpFranja||'Noche')?' selected':'')+'>'+o+'</option>'; }).join('') +
+    '</select></div>' +
+    '<div class="field"><label>Entre</label><input class="input" id="dpIni" type="time" value="'+esc(fr.ini)+'" style="width:130px"></div>' +
+    '<div class="field"><label>y</label><input class="input" id="dpFin" type="time" value="'+esc(fr.fin)+'" style="width:130px"></div>' +
+    '<div class="field"><label>Vigente al</label><input class="input" id="dpRef" type="date" value="'+esc(ref)+'" style="width:160px"></div>' +
+    '<div class="field"><label>Tipo</label><select class="input" id="dpTipo" style="width:180px">' +
+      ['Cualquiera'].concat(tiposAmbiente()).map(function(o){
+        return '<option value="'+esc(o)+'"'+(o===(S.dpTipo||'Cualquiera')?' selected':'')+'>'+esc(o)+'</option>'; }).join('') +
+    '</select></div>' +
+    '<div class="field"><label>Aforo mínimo</label><input class="input" id="dpAforo" type="number" min="0" value="'+esc(S.dpAforo||'')+'" style="width:120px"></div>' +
+    '</div>';
+
+  /* Conteo por día: la lectura rápida de dónde hay aire. */
+  g += '<div class="barra-filtros" style="gap:18px;margin:2px 0 14px">';
+  DIAS.forEach(function(d){
+    var n = filas.filter(function(f){ return !f.dias[d].length && !f.bloqueada; }).length;
+    g += '<span style="font-size:13px"><strong>'+esc(d)+':</strong> '+n+' libre(s)</span>';
+  });
+  g += '</div>';
+
+  g += '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Ambiente</th><th>Tipo</th><th>Aforo</th>' +
+       DIAS.map(function(d){ return '<th>'+esc(d)+'</th>'; }).join('') + '</tr></thead><tbody>';
+  filas.forEach(function(f){
+    g += '<tr'+(f.bloqueada?' style="opacity:.55"':'')+'>' +
+      '<td><strong>'+esc(f.aula)+'</strong>'+(f.bloqueada?'<br><span class="tag tag-neutral">bloqueada</span>':'')+'</td>' +
+      '<td style="font-size:13px">'+esc(f.tipo)+'</td><td>'+esc(f.aforo)+'</td>';
+    DIAS.forEach(function(d){
+      var c = f.dias[d];
+      if(!c.length && !f.bloqueada){
+        g += '<td style="font-size:13px;color:var(--color-accent);font-weight:600">libre</td>';
+      } else if(f.bloqueada && !c.length){
+        g += '<td style="font-size:12px;opacity:.6">'+esc(f.bloqueada.slice(0,34))+'…</td>';
+      } else {
+        g += '<td style="font-size:12px;opacity:.75">' +
+             c.slice(0,3).map(function(p){ return esc(p.seccion)+' '+esc(p.ini)+'-'+esc(p.fin); }).join('<br>') +
+             (c.length>3 ? '<br>+'+(c.length-3) : '') + '</td>';
+      }
+    });
+    g += '</tr>';
+  });
+  g += '</tbody></table></div>';
+
+  g += '<div class="barra-filtros" style="margin-top:16px">' +
+    '<button class="btn btn-secondary" id="dpCsv">Descargar este cuadro (CSV)</button>' +
+    '<button class="btn btn-secondary" id="dpTsv">Copiar para Google Sheets</button></div>';
+  g += '<p style="font-size:12.5px;opacity:.6;margin:10px 0 0">Una celda dice «libre» solo si el ambiente no tiene ' +
+       'nada entre '+esc(fr.ini)+' y '+esc(fr.fin)+' ese día. Un ambiente bloqueado en el catálogo sale atenuado aunque no tenga dictados.</p>';
+
+  el('vista').innerHTML = g;
+
+  el('dpFranja').onchange = function(){
+    S.dpFranja = this.value;
+    if(this.value !== 'Personalizada'){ var x = franjaActual(); S.dpIni = x.ini; S.dpFin = x.fin; }
+    render();
+  };
+  ['dpIni','dpFin'].forEach(function(id){
+    el(id).onchange = function(){ S.dpFranja = 'Personalizada'; S.dpIni = el('dpIni').value; S.dpFin = el('dpFin').value; render(); };
+  });
+  el('dpRef').onchange = function(){ S.dpRef = this.value; render(); };
+  el('dpTipo').onchange = function(){ S.dpTipo = this.value; render(); };
+  el('dpAforo').oninput = function(){ S.dpAforo = this.value; render(); };
+  el('dpCsv').onclick = function(){ csv(matrizDisponibilidadTabla(), 'disponibilidad-'+fr.t.toLowerCase()+'.csv'); };
+  el('dpTsv').onclick = function(){ copiarTsv(matrizDisponibilidadTabla(), el('dpTsv')); };
+}
+
+function tiposAmbiente(){
+  var v = {};
+  D.aulas.forEach(function(a){ if(a.tipo) v[a.tipo] = 1; });
+  return Object.keys(v).sort();
+}
+
+function matrizDisponibilidadTabla(){
+  var fr = franjaActual();
+  var out = [['Ambiente','Tipo','Aforo','Franja','Vigente al'].concat(DIAS)];
+  matrizDisponibilidad().forEach(function(f){
+    out.push([f.aula, f.tipo, f.aforo, fr.ini+'-'+fr.fin, (S.dpRef||hoyIso())].concat(
+      DIAS.map(function(d){
+        if(f.bloqueada && !f.dias[d].length) return 'BLOQUEADA: ' + f.bloqueada;
+        if(!f.dias[d].length) return 'LIBRE';
+        return f.dias[d].map(function(p){ return p.seccion+' '+p.ini+'-'+p.fin; }).join(' · ');
+      })));
+  });
+  return out;
+}
+
+/* ---------- reserva de un ambiente en varios días ----------
+   Antes había que crear un bloque por día. Esto toma ambiente, franja,
+   días y vigencia, y los crea de una sola pasada, avisando cuáles chocan
+   antes de escribir nada. */
+
+function abrirReserva(){
+  var hoy = hoyIso();
+  var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">Programación</div>' +
+    '<h2 style="font-size:27px;margin-top:4px">Reservar un ambiente</h2>' +
+    '<p style="font-size:13px;opacity:.65;margin-top:6px">Crea el mismo bloque en varios días de una vez. ' +
+    'Sirve para reservas externas como Fondo Empleo, o para un curso que va varios días a la misma hora.</p>' +
+    '</div><div class="panel-cuerpo">';
+
+  g += '<div class="barra-filtros">' +
+    '<div class="field" style="min-width:160px"><label>Ambiente</label><select class="input" id="rvAula">' +
+      aulasDelCatalogo().map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join('') +
+    '</select></div>' +
+    '<div class="field" style="min-width:120px"><label>Desde</label><input class="input" id="rvIni" type="time" value="08:00"></div>' +
+    '<div class="field" style="min-width:120px"><label>Hasta</label><input class="input" id="rvFin" type="time" value="14:30"></div>' +
+    '</div>';
+
+  g += '<div class="field" style="margin-bottom:14px"><label>Días</label><div class="seg" id="rvDias">' +
+    DIAS.map(function(d){
+      var on = (d !== 'Sábado');
+      return '<label class="seg-opt"><input type="checkbox" value="'+esc(d)+'"'+(on?' checked':'')+'><span>'+esc(d)+'</span></label>';
+    }).join('') + '</div></div>';
+
+  g += '<div class="barra-filtros">' +
+    '<div class="field" style="min-width:160px"><label>Vigente desde</label><input class="input" id="rvDesde" type="date" value="'+esc(hoy)+'"></div>' +
+    '<div class="field" style="min-width:160px"><label>Vigente hasta</label><input class="input" id="rvHasta" type="date" value=""></div>' +
+    '</div>';
+  g += '<p style="font-size:12.5px;opacity:.6;margin:-4px 0 14px">Deja «hasta» vacío si la reserva corre hasta fin de ciclo.</p>';
+
+  g += '<div class="barra-filtros">' +
+    '<div class="field" style="min-width:260px"><label>Curso o motivo</label><input class="input" id="rvCurso" type="text" value=""></div>' +
+    '<div class="field" style="min-width:180px"><label>Sección o clave</label><input class="input" id="rvSeccion" type="text" value=""></div>' +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    '<div class="field" style="min-width:240px"><label>Docente o responsable</label><input class="input" id="rvDocente" type="text" value=""></div>' +
+    '<div class="field" style="min-width:110px"><label>Alumnos</label><input class="input" id="rvAlumnos" type="number" min="0" value=""></div>' +
+    '<div class="field" style="min-width:170px"><label>Tipo</label><select class="input" id="rvTipo">' +
+      TIPOS_DICTADO.map(function(t){ return '<option value="'+esc(t)+'"'+(t==='FONDO EMPLEO'?' selected':'')+'>'+esc(t)+'</option>'; }).join('') +
+    '</select></div></div>';
+  g += '<div class="field"><label>Nota</label><textarea class="input" id="rvNota" rows="2"></textarea></div>';
+
+  g += '<div id="rvAviso" style="margin-top:14px"></div>';
+  g += '<div class="barra-filtros" style="margin-top:18px">' +
+    '<button class="btn btn-primary" id="rvCrear">Crear los bloques</button>' +
+    '<button class="btn btn-secondary" id="rvCerrar">Cancelar</button></div>';
+  g += '</div>';
+
+  abrirPanel(g);
+
+  function diasElegidos(){
+    return [].slice.call(el('rvDias').querySelectorAll('input:checked')).map(function(x){ return x.value; });
+  }
+  function leer(){
+    return {
+      aula: el('rvAula').value, ini: el('rvIni').value, fin: el('rvFin').value,
+      curso: el('rvCurso').value.trim(), seccion: el('rvSeccion').value.trim().toUpperCase(),
+      docente: el('rvDocente').value.trim(), alumnos: el('rvAlumnos').value.trim(),
+      tipo: el('rvTipo').value, vigDesde: el('rvDesde').value, vigHasta: el('rvHasta').value,
+      nota: el('rvNota').value.trim(), activo: 'SÍ'
+    };
+  }
+
+  /* El choque se calcula antes de escribir: así ve de golpe qué días
+     entran limpios y cuáles pisan un dictado. */
+  function revisar(){
+    var o = leer(), dias = diasElegidos(), h = '', errores = [];
+    var a = min(o.ini), b = min(o.fin);
+    if(!valida(a,b) || b <= a) errores.push('Revisa las horas: la de fin debe ser posterior.');
+    if(!dias.length) errores.push('Elige al menos un día.');
+    if(!o.curso) errores.push('Escribe el curso o el motivo de la reserva.');
+    if(!o.seccion) errores.push('Escribe una sección o clave.');
+    if(errores.length) h += '<div class="aviso">' + errores.map(esc).join(' ') + '</div>';
+
+    var choques = [];
+    if(!errores.length){
+      dias.forEach(function(d){
+        var c = activos().filter(function(q){
+          if(q.aula !== o.aula || q.dia !== d) return false;
+          var qa = min(q.ini), qb = min(q.fin);
+          return valida(qa,qb) && qa < b && a < qb;
+        });
+        if(c.length) choques.push({dia:d, con:c});
+      });
+      var limpios = dias.length - choques.length;
+      h += '<div class="aviso'+(choques.length?'':' ok')+'"><b>' + limpios + ' de ' + dias.length +
+           ' día(s) entran sin chocar.</b>' +
+           (choques.length ? '<br>' + choques.map(function(x){
+              return esc(x.dia) + ': ' + x.con.map(function(p){ return esc(p.seccion)+' ('+esc(p.horario)+')'; }).join(', ');
+            }).join('<br>') + '<br><span style="opacity:.75">Los días con choque no se crean, salvo que confirmes el solape al final.</span>' : '') +
+           '</div>';
+    }
+    el('rvAviso').innerHTML = h;
+    return {errores: errores, dias: dias, choques: choques};
+  }
+
+  ['rvAula','rvIni','rvFin','rvCurso','rvSeccion'].forEach(function(id){
+    el(id).onchange = revisar; el(id).oninput = revisar;
+  });
+  el('rvDias').onchange = revisar;
+  revisar();
+
+  el('rvCerrar').onclick = cerrarPanel;
+
+  el('rvCrear').onclick = function(){
+    var r = revisar();
+    if(r.errores.length){ alert('Corrige primero: ' + r.errores.join(' ')); return; }
+    var o = leer();
+    var conChoque = {};
+    r.choques.forEach(function(x){ conChoque[x.dia] = 1; });
+    var forzar = false;
+    if(r.choques.length){
+      forzar = confirm('Hay ' + r.choques.length + ' día(s) con choque.\n\n' +
+        'Aceptar: se crean TODOS, y los que chocan quedan marcados como solape autorizado.\n' +
+        'Cancelar: se crean solo los días limpios.');
+    }
+    var pendientes = forzar ? r.dias : r.dias.filter(function(d){ return !conChoque[d]; });
+    if(!pendientes.length){ alert('No queda ningún día por crear.'); return; }
+
+    el('rvCrear').disabled = true;
+    var hechos = [], fallos = [];
+    (function siguiente(i){
+      if(i >= pendientes.length){
+        el('rvCrear').disabled = false;
+        cerrarPanel();
+        alert('Reserva del ambiente ' + o.aula + ':\n' +
+              hechos.length + ' bloque(s) creado(s)' + (hechos.length ? ' (' + hechos.join(', ') + ')' : '') +
+              (fallos.length ? '\nNo se pudo con: ' + fallos.join(' · ') : ''));
+        render();
+        return;
+      }
+      var d = pendientes[i];
+      var dic = {}; for(var k in o) dic[k] = o[k];
+      dic.dia = d;
+      enviar({accion:'base-crear', id:'', dictado:dic, forzar: !!conChoque[d],
+              resumen: o.seccion + ' — reserva de ' + o.aula + ' el ' + d + ' ' + o.ini + '-' + o.fin},
+        function(res){
+          if(res.ok) hechos.push(d); else fallos.push(d + ' (' + (res.error || 'error') + ')');
+          siguiente(i + 1);
+        });
+    })(0);
+  };
+}
+
 var TABS = [
   ['panorama','Panorama',vPanorama],
   ['grilla','Grilla del día',vGrilla],
   ['ambientes','Ambientes',vAmbientes],
   ['libres','Aulas libres',vLibres],
+  ['disponibilidad','Disponibilidad',vDisponibilidad],
   ['horarios','Horarios',vHorarios],
   ['docentes','Docentes',vDocentes],
   ['alertas','Alertas',vAlertas],

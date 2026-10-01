@@ -2613,6 +2613,44 @@ function vHorarios(){
   }
 }
 
+/* ---- Ayudas del formulario (v12) ----
+   normHora acepta 8, 8:00, 8.00, 0800, 8h, 7pm, 19:00 hrs y las deja como HH:MM.
+   Para la oferta corta la sección es opcional: si se deja vacía se arma sola
+   con el tipo, el curso y el mes de inicio. El programa se deduce del tipo. */
+function normHora(v){
+  var s = String(v||'').trim().toLowerCase().replace(/\s+/g,' ');
+  if(!s) return '';
+  var pm = /p\.?\s?m\.?/.test(s), am = /a\.?\s?m\.?/.test(s);
+  s = s.replace(/(a|p)\.?\s?m\.?/g,'').replace(/hrs?|horas?|h/g,'').trim();
+  var m = s.match(/^(\d{1,2})(?:[:.,;\s](\d{1,2}))?$/) || s.match(/^(\d{2})(\d{2})$/);
+  if(!m) return String(v).trim();
+  var h = +m[1], q = m[2] !== undefined ? +m[2] : 0;
+  if(m[2] !== undefined && m[2].length === 1) q = q*10;
+  if(pm && h < 12) h += 12;
+  if(am && h === 12) h = 0;
+  if(h > 23 || q > 59) return String(v).trim();
+  return (h<10?'0':'')+h+':'+(q<10?'0':'')+q;
+}
+var PROGRAMA_DE_TIPO = {'GT15':'GT15','PEC':'PEC','PI':'PI','TALLER':'TALLER','CURSO CORTO':'CC','FONDO EMPLEO':'EXTERNO','EVENTO':'ACADÉMICA'};
+var PREFIJO_DE_TIPO  = {'PEC':'PEC','PI':'PI','TALLER':'TALLER','CURSO CORTO':'CC','FONDO EMPLEO':'EXT','EVENTO':'EVT'};
+function seccionSugerida(tipo, curso, desde){
+  var pre = PREFIJO_DE_TIPO[tipo]; if(!pre || !curso) return '';
+  var vacias = {de:1,del:1,la:1,el:1,los:1,las:1,y:1,e:1,en:1,para:1,con:1,a:1,al:1,
+    taller:1,curso:1,corto:1,pec:1,pi:1,programa:1,especializacion:1,produccion:1,diseno:1};
+  var pal = curso.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()
+    .replace(/[^A-Z0-9 ]/g,' ').split(' ').filter(function(w){ return w && !vacias[w.toLowerCase()]; });
+  if(!pal.length) pal = curso.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').split(' ').filter(Boolean);
+  var clave = pre + '-' + pal.slice(0,2).join('-');
+  var MES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SET','OCT','NOV','DIC'];
+  if(desde && /^\d{4}-\d{2}/.test(desde)) clave += '-' + MES[+desde.slice(5,7)-1] + desde.slice(2,4);
+  return clave;
+}
+function programaSugerido(tipo, seccion){
+  if(PROGRAMA_DE_TIPO[tipo]) return PROGRAMA_DE_TIPO[tipo];
+  var m = String(seccion||'').match(/^([A-Z0-9]+)-/);
+  return m ? m[1] : '';
+}
+
 /* Formulario de alta y edición. p = null para crear. */
 function abrirEditor(p, pre){
   var esNuevo = !p;
@@ -2637,8 +2675,8 @@ function abrirEditor(p, pre){
 
   g += '<div class="barra-filtros">' +
     selec('edDia','Día', dato('dia') || DIAS[0], DIAS, 140) +
-    campo('edIni','Inicio', dato('ini'), 110) +
-    campo('edFin','Fin', dato('fin'), 110) +
+    campo('edIni','Inicio (ej. 19:00)', dato('ini'), 110) +
+    campo('edFin','Fin (ej. 21:15)', dato('fin'), 110) +
     selec('edAula','Ambiente', dato('aula') || aulasDelCatalogo()[0], aulasDelCatalogo(), 150) +
     '</div>';
   g += '<div class="barra-filtros">' +
@@ -2651,8 +2689,8 @@ function abrirEditor(p, pre){
     selec('edTipo','Tipo', dato('tipo') || 'CARRERA', TIPOS_DICTADO, 160) +
     '</div>';
   g += '<div class="barra-filtros">' +
-    campo('edPrograma','Programa', dato('programa'), 130) +
-    campo('edGrupo','Grupo Q10', dato('grupo'), 200) +
+    campo('edPrograma','Programa (se llena solo)', dato('programa'), 130) +
+    campo('edGrupo','Grupo Q10 (opcional)', dato('grupo'), 200) +
     selec('edActivo','Activo', dato('activo') || 'SÍ', ['SÍ','NO'], 110) +
     '</div>';
   g += '<div class="barra-filtros">' +
@@ -2673,7 +2711,7 @@ function abrirEditor(p, pre){
 
   function leerForm(){
     return {
-      dia: el('edDia').value, ini: el('edIni').value.trim(), fin: el('edFin').value.trim(),
+      dia: el('edDia').value, ini: normHora(el('edIni').value), fin: normHora(el('edFin').value),
       aula: el('edAula').value, seccion: el('edSeccion').value.trim().toUpperCase(),
       curso: el('edCurso').value.trim(), docente: el('edDocente').value.trim(),
       alumnos: el('edAlumnos').value.trim(), tipo: el('edTipo').value,
@@ -2682,15 +2720,29 @@ function abrirEditor(p, pre){
       nota: el('edNota').value.trim()
     };
   }
+  /* Completa lo que se puede deducir sin que nadie lo escriba. */
+  function completar(o){
+    if(!o.seccion) o.seccion = seccionSugerida(o.tipo, o.curso, o.vigDesde);
+    if(!o.programa) o.programa = programaSugerido(o.tipo, o.seccion);
+    return o;
+  }
+  function pistas(){
+    var o = leerForm();
+    var sug = seccionSugerida(o.tipo, o.curso, o.vigDesde);
+    el('edSeccion').placeholder = sug ? 'Vacía = ' + sug : (o.tipo==='CARRERA'||o.tipo==='GT15' ? 'Ej. DM-5B-N (como en Q10)' : '');
+    el('edPrograma').placeholder = programaSugerido(o.tipo, o.seccion || sug) || '';
+    el('edGrupo').placeholder = 'Ej. CAMPAÑA OCTUBRE 2026';
+  }
 
   /* Los cruces se calculan mientras escribe: el servidor los vuelve a
      revisar, pero verlos antes evita el viaje. */
   function revisar(){
-    var o = leerForm(), msg = [];
+    pistas();
+    var o = completar(leerForm()), msg = [];
     var a = min(o.ini), b = min(o.fin);
-    if(!valida(a,b)) msg.push('Escribe las horas como HH:MM.');
+    if(!valida(a,b)) msg.push('No entiendo la hora de inicio o de fin (ej. 19:00 o 7pm).');
     else if(b <= a) msg.push('La hora de fin debe ser posterior al inicio.');
-    if(!o.seccion) msg.push('Falta la sección.');
+    if(!o.seccion && o.curso) msg.push('Falta la sección (la de Q10, ej. DM-5B-N).');
     if(!o.curso) msg.push('Falta el curso.');
     var choques = [];
     if(valida(a,b) && b > a && o.activo === 'SÍ' && o.aula !== 'VIRTUAL'){
@@ -2714,7 +2766,7 @@ function abrirEditor(p, pre){
     return {errores: msg, choques: choques};
   }
 
-  ['edDia','edIni','edFin','edAula','edAlumnos','edActivo','edSeccion','edCurso'].forEach(function(id){
+  ['edDia','edIni','edFin','edAula','edAlumnos','edActivo','edSeccion','edCurso','edTipo','edDesde','edPrograma'].forEach(function(id){
     el(id).onchange = revisar; el(id).oninput = revisar;
   });
   revisar();
@@ -2724,7 +2776,7 @@ function abrirEditor(p, pre){
   function guardar(forzar){
     var r = revisar();
     if(r.errores.length){ alert('Corrige primero: ' + r.errores.join(' ')); return; }
-    var o = leerForm();
+    var o = completar(leerForm());
     var resumen = o.seccion + ' — ' + o.dia + ' ' + o.ini + '-' + o.fin + ' en ' + o.aula;
     el('edGuardar').disabled = true;
     enviar({accion: esNuevo ? 'base-crear' : 'base-editar',

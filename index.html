@@ -2651,10 +2651,17 @@ function programaSugerido(tipo, seccion){
   return m ? m[1] : '';
 }
 
-/* Formulario de alta y edición. p = null para crear. */
+/* Formulario de alta y edición. p = null para crear.
+   El orden está pensado para elegir bien el aula: primero CUÁNDO y DÓNDE
+   (vigencia, alumnos, días, horas y ambiente), con los cruces y las aulas
+   libres a la vista mientras escribe; después QUÉ se dicta.
+   Al crear se pueden marcar varios días: se guarda un dictado por día,
+   cada uno con sus horas y su ambiente. Al editar se trabaja un solo día,
+   porque cada fila de la base es un día. */
 function abrirEditor(p, pre){
   var esNuevo = !p;
   var v = p || {};
+  pre = pre || {};
   function dato(c){ return pre[c] !== undefined ? pre[c] : (v[c] || ''); }
 
   function campo(id, etiqueta, valor, ancho, tipo){
@@ -2667,37 +2674,50 @@ function abrirEditor(p, pre){
       opciones.map(function(o){ return '<option value="'+esc(o)+'"'+(String(o)===String(valor)?' selected':'')+'>'+esc(o)+'</option>'; }).join('') +
       '</select></div>';
   }
+  function cod(d){ return d.normalize('NFD').replace(/[\u0300-\u036f]/g,'').slice(0,3); }
+  function paso(t){ return '<div class="eyebrow" style="opacity:.75;margin:18px 0 8px;font-weight:600">'+t+'</div>'; }
+
+  var AULAS = aulasDelCatalogo();
+  var estiloDia = 'display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border:1px solid var(--color-neutral-300,#c9c9c9);border-radius:2px;font-size:13.5px;cursor:pointer;user-select:none';
+
+  /* Estado de cada día marcado: sus horas y su ambiente. */
+  var filas = {};
+  var diaInicial = dato('dia');
+  if(diaInicial) filas[diaInicial] = {ini: dato('ini'), fin: dato('fin'), aula: dato('aula') || AULAS[0]};
 
   var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">Programación</div>' +
     '<h2 style="font-size:27px;margin-top:4px">'+(esNuevo?'Agregar un dictado':'Editar el dictado')+'</h2>' +
     (esNuevo ? '' : '<p style="font-size:13px;opacity:.6;margin-top:6px">'+esc(v.seccion)+' · '+esc(v.curso)+' · id '+esc(v.id)+'</p>') +
     '</div><div class="panel-cuerpo">';
 
-  g += '<div class="barra-filtros">' +
-    selec('edDia','Día', dato('dia') || DIAS[0], DIAS, 140) +
-    campo('edIni','Inicio (ej. 19:00)', dato('ini'), 110) +
-    campo('edFin','Fin (ej. 21:15)', dato('fin'), 110) +
-    selec('edAula','Ambiente', dato('aula') || aulasDelCatalogo()[0], aulasDelCatalogo(), 150) +
-    '</div>';
-  g += '<div class="barra-filtros">' +
-    campo('edSeccion','Sección', dato('seccion'), 170) +
-    campo('edCurso','Curso', dato('curso'), 260) +
-    '</div>';
-  g += '<div class="barra-filtros">' +
-    campo('edDocente','Docente', dato('docente'), 240).replace('<input ','<input list="dlDocentes" autocomplete="off" ') +
-    campo('edAlumnos','Alumnos', dato('alumnos'), 110) +
-    selec('edTipo','Tipo', dato('tipo') || 'CARRERA', TIPOS_DICTADO, 160) +
-    '</div>';
-  g += '<div class="barra-filtros">' +
-    campo('edPrograma','Programa (se llena solo)', dato('programa'), 130) +
-    campo('edGrupo','Grupo Q10 (opcional)', dato('grupo'), 200) +
-    selec('edActivo','Activo', dato('activo') || 'SÍ', ['SÍ','NO'], 110) +
-    '</div>';
+  g += paso('1 · Cuándo y dónde');
   g += '<div class="barra-filtros">' +
     campo('edDesde','Vigente desde', dato('vigDesde'), 150, 'date') +
     campo('edHasta','Vigente hasta', dato('vigHasta'), 150, 'date') +
+    campo('edAlumnos','Alumnos', dato('alumnos'), 100) +
     '</div>';
-  g += '<p style="font-size:12.5px;opacity:.6;margin:-4px 0 14px">Deja la vigencia vacía si el dictado corre todo el ciclo.</p>';
+  g += '<p style="font-size:12.5px;opacity:.6;margin:-4px 0 12px">Deja la vigencia vacía si el dictado corre todo el ciclo.</p>';
+  g += '<div class="field"><label>'+(esNuevo ? 'Días de clase — marca uno o varios' : 'Día')+'</label>' +
+    '<div id="edDias" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px">' +
+    DIAS.map(function(d){
+      return '<label style="'+estiloDia+'"><input type="checkbox" value="'+esc(d)+'"'+(filas[d]?' checked':'')+'> '+esc(d)+'</label>';
+    }).join('') + '</div></div>';
+  g += '<div id="edFilas"></div>';
+
+  g += paso('2 · Qué se dicta');
+  g += '<div class="barra-filtros">' +
+    selec('edTipo','Tipo', dato('tipo') || 'CARRERA', TIPOS_DICTADO, 160) +
+    campo('edCurso','Curso', dato('curso'), 300) +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edSeccion','Sección', dato('seccion'), 190) +
+    campo('edDocente','Docente', dato('docente'), 260).replace('<input ','<input list="dlDocentes" autocomplete="off" ') +
+    '</div>';
+  g += '<div class="barra-filtros">' +
+    campo('edPrograma','Programa (se llena solo)', dato('programa'), 150) +
+    campo('edGrupo','Grupo Q10 (opcional)', dato('grupo'), 210) +
+    selec('edActivo','Activo', dato('activo') || 'SÍ', ['SÍ','NO'], 100) +
+    '</div>';
   g += '<div class="field"><label>Nota</label><textarea class="input" id="edNota" rows="3">'+esc(dato('nota'))+'</textarea></div>';
 
   g += '<div id="edAviso" style="margin-top:14px"></div>';
@@ -2709,10 +2729,68 @@ function abrirEditor(p, pre){
 
   abrirPanel(g);
 
-  function leerForm(){
+  /* ---------- días marcados ---------- */
+  function diasMarcados(){
+    return DIAS.filter(function(d){ return !!filas[d]; });
+  }
+  /* Guarda lo escrito antes de volver a pintar, para no perder nada. */
+  function recogerFilas(){
+    diasMarcados().forEach(function(d){
+      var c = cod(d);
+      if(!el('edIni_'+c)) return;
+      filas[d] = {ini: el('edIni_'+c).value, fin: el('edFin_'+c).value, aula: el('edAula_'+c).value};
+    });
+  }
+  function pintarFilas(){
+    var h = '';
+    diasMarcados().forEach(function(d){
+      var c = cod(d), f = filas[d];
+      h += '<div style="border-left:3px solid var(--color-neutral-300,#c9c9c9);padding:6px 0 6px 12px;margin:12px 0">' +
+        '<div style="font-weight:600;font-size:14.5px;margin-bottom:2px">'+esc(d)+'</div>' +
+        '<div class="barra-filtros" style="margin-bottom:4px">' +
+          campo('edIni_'+c,'Inicio (ej. 19:00)', f.ini, 110) +
+          campo('edFin_'+c,'Fin (ej. 21:15)', f.fin, 110) +
+          selec('edAula_'+c,'Ambiente', f.aula, AULAS, 140) +
+        '</div><div id="edEst_'+c+'" style="font-size:13px"></div></div>';
+    });
+    if(!h) h = '<p style="font-size:13px;opacity:.6;margin:10px 0">Marca el día o los días de clase para elegir horas y ambiente.</p>';
+    el('edFilas').innerHTML = h;
+    diasMarcados().forEach(function(d){
+      var c = cod(d);
+      ['edIni_','edFin_','edAula_'].forEach(function(pfx){
+        el(pfx+c).oninput = revisar; el(pfx+c).onchange = revisar;
+      });
+    });
+  }
+  document.querySelectorAll('#edDias input').forEach(function(chk){
+    chk.onchange = function(){
+      recogerFilas();
+      var d = chk.value;
+      if(chk.checked){
+        if(!esNuevo){
+          /* Al editar, un solo día: cambiar de día mueve el bloque. */
+          var previo = diasMarcados()[0];
+          var base = previo ? filas[previo] : {ini:'', fin:'', aula: AULAS[0]};
+          filas = {}; filas[d] = {ini: base.ini, fin: base.fin, aula: base.aula};
+          document.querySelectorAll('#edDias input').forEach(function(x){ x.checked = (x.value === d); });
+        } else {
+          /* El día nuevo copia horas y ambiente del primero ya marcado. */
+          var primero = diasMarcados()[0];
+          var m = primero ? filas[primero] : {ini:'', fin:'', aula: AULAS[0]};
+          filas[d] = {ini: m.ini, fin: m.fin, aula: m.aula};
+        }
+      } else {
+        if(!esNuevo){ chk.checked = true; return; }
+        delete filas[d];
+      }
+      pintarFilas(); revisar();
+    };
+  });
+
+  /* ---------- lectura ---------- */
+  function comunes(){
     return {
-      dia: el('edDia').value, ini: normHora(el('edIni').value), fin: normHora(el('edFin').value),
-      aula: el('edAula').value, seccion: el('edSeccion').value.trim().toUpperCase(),
+      seccion: el('edSeccion').value.trim().toUpperCase(),
       curso: el('edCurso').value.trim(), docente: el('edDocente').value.trim(),
       alumnos: el('edAlumnos').value.trim(), tipo: el('edTipo').value,
       programa: el('edPrograma').value.trim().toUpperCase(), grupo: el('edGrupo').value.trim(),
@@ -2726,72 +2804,192 @@ function abrirEditor(p, pre){
     if(!o.programa) o.programa = programaSugerido(o.tipo, o.seccion);
     return o;
   }
+  function dictadoDe(d){
+    var o = comunes(), f = filas[d];
+    o.dia = d; o.ini = normHora(f.ini); o.fin = normHora(f.fin); o.aula = f.aula;
+    return completar(o);
+  }
   function pistas(){
-    var o = leerForm();
+    var o = comunes();
     var sug = seccionSugerida(o.tipo, o.curso, o.vigDesde);
     el('edSeccion').placeholder = sug ? 'Vacía = ' + sug : (o.tipo==='CARRERA'||o.tipo==='GT15' ? 'Ej. DM-5B-N (como en Q10)' : '');
     el('edPrograma').placeholder = programaSugerido(o.tipo, o.seccion || sug) || '';
     el('edGrupo').placeholder = 'Ej. CAMPAÑA OCTUBRE 2026';
   }
 
-  /* Los cruces se calculan mientras escribe: el servidor los vuelve a
-     revisar, pero verlos antes evita el viaje. */
-  function revisar(){
-    pistas();
-    var o = completar(leerForm()), msg = [];
+  /* ---------- cruces: la misma regla que el servidor ----------
+     Dos dictados chocan solo si comparten un día real de clase desde hoy:
+     lo pasado no cuenta, vigencias que no se tocan no chocan y un bloque
+     con fechas sueltas solo ocupa esas fechas. */
+  var NUMDIA = {'Lunes':1,'Martes':2,'Miércoles':3,'Jueves':4,'Viernes':5,'Sábado':6};
+  function isoOk(s){ return /^\d{4}-\d{2}-\d{2}$/.test(String(s||'')) ? String(s) : ''; }
+  function fechasDe(x){
+    var f = x.fechas; if(!f) return [];
+    return (Array.isArray(f) ? f : String(f).split(',')).map(function(s){ return isoOk(String(s).trim()); }).filter(String);
+  }
+  function masDias(iso, n){ var q = iso.split('-'); return aIso(new Date(+q[0], +q[1]-1, +q[2]+n)); }
+  function semanaDia(iso){ var q = iso.split('-'); return new Date(+q[0], +q[1]-1, +q[2]).getDay(); }
+  function fechaComun(x, y){
+    var desde = [hoyIso(), isoOk(x.vigDesde), isoOk(y.vigDesde)].filter(String).sort().pop();
+    var hs = [isoOk(x.vigHasta), isoOk(y.vigHasta)].filter(String).sort();
+    var hasta = hs.length ? hs[0] : '9999-12-31';
+    if(desde > hasta) return '';
+    var fx = fechasDe(x), fy = fechasDe(y);
+    var dentro = function(f){ return f >= desde && f <= hasta; };
+    if(fx.length && fy.length) return fx.filter(function(f){ return fy.indexOf(f) >= 0 && dentro(f); }).sort()[0] || '';
+    if(fx.length || fy.length) return (fx.length ? fx : fy).filter(dentro).sort()[0] || '';
+    var obj = NUMDIA[x.dia]; if(obj === undefined) return desde;
+    var f = desde;
+    for(var i = 0; i < 7 && f <= hasta; i++){ if(semanaDia(f) === obj) return f; f = masDias(f, 1); }
+    return '';
+  }
+  function choquesDe(o){
+    if(o.activo === 'NO' || o.aula === 'VIRTUAL') return [];
     var a = min(o.ini), b = min(o.fin);
-    if(!valida(a,b)) msg.push('No entiendo la hora de inicio o de fin (ej. 19:00 o 7pm).');
-    else if(b <= a) msg.push('La hora de fin debe ser posterior al inicio.');
-    if(!o.seccion && o.curso) msg.push('Falta la sección (la de Q10, ej. DM-5B-N).');
-    if(!o.curso) msg.push('Falta el curso.');
-    var choques = [];
-    if(valida(a,b) && b > a && o.activo === 'SÍ' && o.aula !== 'VIRTUAL'){
-      activos().forEach(function(q){
-        if(String(q.id) === String(v.id)) return;
-        if(q.aula !== o.aula || q.dia !== o.dia) return;
-        var qa = min(q.ini), qb = min(q.fin);
-        if(!valida(qa,qb)) return;
-        if(qa < b && a < qb) choques.push(q.seccion + ' (' + q.horario + ', ' + q.curso + ')');
-      });
-    }
-    var amb = D.aulas.filter(function(x){ return x.aula === o.aula; })[0];
-    var n = parseInt(o.alumnos,10), af = amb ? parseInt(amb.aforo,10) : NaN;
-    var h = '';
-    if(msg.length) h += '<div class="aviso">' + msg.map(esc).join(' ') + '</div>';
-    if(choques.length) h += '<div class="aviso"><b>Choca con ' + choques.length + ' dictado(s):</b> ' +
-      choques.map(esc).join(' · ') + '. Si el solape está autorizado, al guardar te pediré confirmarlo.</div>';
-    if(!isNaN(n) && !isNaN(af) && n > af) h += '<div class="aviso"><b>Sobre aforo:</b> ' + n +
-      ' alumnos en un ambiente de ' + af + (amb.capacidad ? ' (capacidad física ' + esc(amb.capacidad) + ')' : '') + '.</div>';
-    el('edAviso').innerHTML = h;
-    return {errores: msg, choques: choques};
+    if(!valida(a,b) || b <= a) return [];
+    /* Al editar se comparan las fechas sueltas propias del bloque. */
+    var yo = o; if(!esNuevo && v.fechas){ yo = {}; for(var k in o) yo[k] = o[k]; yo.fechas = v.fechas; }
+    var r = [];
+    D.prog.forEach(function(q){
+      if(!esNuevo && String(q.id) === String(v.id)) return;
+      if(q.aula !== o.aula || q.dia !== o.dia || q.activo === 'NO') return;
+      var qa = min(q.ini), qb = min(q.fin);
+      if(!valida(qa,qb) || !(qa < b && a < qb)) return;
+      var f = fechaComun(yo, q);
+      if(f) r.push(q.seccion + ' (' + q.horario + ', ' + q.curso + ', desde el ' + corta(f) + ')');
+    });
+    return r;
+  }
+  /* Ambientes sin cruce en ese mismo horario, los más parecidos primero:
+     mismo tipo de aula y aforo suficiente para los alumnos. */
+  function libresPara(o){
+    var actual = D.aulas.filter(function(x){ return x.aula === o.aula; })[0] || {};
+    var n = parseInt(o.alumnos, 10);
+    return D.aulas.filter(function(x){
+      if(x.aula === 'VIRTUAL' || x.aula === o.aula || x.bloqueada) return false;
+      var af = parseInt(x.aforo, 10);
+      if(!isNaN(n) && !isNaN(af) && af < n) return false;
+      var prueba = {}; for(var k in o) prueba[k] = o[k]; prueba.aula = x.aula;
+      return choquesDe(prueba).length === 0;
+    }).sort(function(x, y){
+      var tx = x.tipo === actual.tipo ? 0 : 1, ty = y.tipo === actual.tipo ? 0 : 1;
+      if(tx !== ty) return tx - ty;
+      return (parseInt(x.aforo,10)||0) - (parseInt(y.aforo,10)||0);
+    }).slice(0, 8);
+  }
+  function botonesLibres(d, lista){
+    if(!lista.length) return '<div style="margin-top:6px;opacity:.75">No encontré otro ambiente libre en ese horario.</div>';
+    return '<div style="margin-top:6px">Libres a esa hora (clic para elegir): ' + lista.map(function(x){
+      return '<button type="button" class="btn btn-secondary" data-libre="'+esc(x.aula)+'" data-dia="'+esc(d)+'" ' +
+        'style="padding:2px 9px;font-size:12.5px;margin:3px 4px 0 0">'+esc(x.aula)+(x.tipo?' · '+esc(x.tipo):'')+(x.aforo?' · '+esc(x.aforo):'')+'</button>';
+    }).join('') + '</div>';
   }
 
-  ['edDia','edIni','edFin','edAula','edAlumnos','edActivo','edSeccion','edCurso','edTipo','edDesde','edPrograma'].forEach(function(id){
+  /* Se revisa mientras escribe: el servidor lo vuelve a comprobar al guardar. */
+  function revisar(){
+    recogerFilas();
+    pistas();
+    var c = comunes(), msg = [], choquesTodos = [];
+    var dias = diasMarcados();
+    if(!dias.length) msg.push('Marca al menos un día de clase.');
+    if(!c.curso) msg.push('Falta el curso.');
+    else if(!completar(comunes()).seccion) msg.push('Falta la sección (la de Q10, ej. DM-5B-N).');
+
+    dias.forEach(function(d){
+      var o = dictadoDe(d), est = el('edEst_'+cod(d));
+      var a = min(o.ini), b = min(o.fin), h = '';
+      if(!valida(a,b)){
+        msg.push(d + ': no entiendo la hora de inicio o de fin (ej. 19:00 o 7pm).');
+        h = '<span style="opacity:.7">Escribe inicio y fin (ej. 19:00 y 21:15).</span>';
+      } else if(b <= a){
+        msg.push(d + ': la hora de fin debe ser posterior al inicio.');
+        h = '<div class="aviso" style="margin:4px 0">La hora de fin debe ser posterior al inicio.</div>';
+      } else if(o.aula === 'VIRTUAL'){
+        h = '<span style="opacity:.75">Virtual: no ocupa ambiente.</span>';
+      } else if(o.activo === 'NO'){
+        h = '<span style="opacity:.75">Inactivo: no ocupa ambiente.</span>';
+      } else {
+        var ch = choquesDe(o);
+        var amb = D.aulas.filter(function(x){ return x.aula === o.aula; })[0];
+        var n = parseInt(o.alumnos,10), af = amb ? parseInt(amb.aforo,10) : NaN;
+        var sobre = !isNaN(n) && !isNaN(af) && n > af;
+        if(ch.length){
+          choquesTodos.push(d + ' — ' + ch.join('; '));
+          h = '<div class="aviso" style="margin:4px 0"><b>El ' + esc(o.aula) + ' está ocupado:</b> ' + ch.map(esc).join(' · ') +
+              botonesLibres(d, libresPara(o)) + '</div>';
+        } else if(sobre){
+          h = '<div class="aviso" style="margin:4px 0"><b>Libre, pero sobre aforo:</b> ' + n + ' alumnos en un ambiente de ' + af +
+              (amb.capacidad ? ' (capacidad física ' + esc(amb.capacidad) + ')' : '') + '.' + botonesLibres(d, libresPara(o)) + '</div>';
+        } else {
+          h = '<div class="aviso ok" style="margin:4px 0">✓ El ' + esc(o.aula) + ' está libre ' + esc(o.ini) + '–' + esc(o.fin) +
+              (o.vigDesde || o.vigHasta ? ' en esa vigencia.' : ' desde hoy hasta fin de ciclo.') + '</div>';
+        }
+      }
+      if(est) est.innerHTML = h;
+    });
+
+    el('edAviso').innerHTML = msg.length ? '<div class="aviso">' + msg.map(esc).join(' ') + '</div>' : '';
+    return {errores: msg, choques: choquesTodos};
+  }
+
+  /* Clic en un aula libre. Va en mousedown y sobre el contenedor: si el
+     cursor estaba en una hora, al salir de ella se repinta el aviso y el
+     botón original desaparece antes de que llegue el clic. */
+  function elegirLibre(e){
+    var btn = e.target.closest ? e.target.closest('[data-libre]') : null;
+    if(!btn) return;
+    e.preventDefault();
+    var s = el('edAula_' + cod(btn.dataset.dia));
+    if(s && s.value !== btn.dataset.libre){ s.value = btn.dataset.libre; revisar(); }
+  }
+  el('edFilas').addEventListener('mousedown', elegirLibre);
+  el('edFilas').addEventListener('click', elegirLibre);
+
+  ['edDesde','edHasta','edAlumnos','edActivo','edSeccion','edCurso','edTipo','edPrograma'].forEach(function(id){
     el(id).onchange = revisar; el(id).oninput = revisar;
   });
+  pintarFilas();
   revisar();
 
   el('edCerrar').onclick = cerrarPanel;
 
-  function guardar(forzar){
+  /* ---------- guardar: un dictado por día, uno detrás de otro ---------- */
+  function guardar(){
     var r = revisar();
     if(r.errores.length){ alert('Corrige primero: ' + r.errores.join(' ')); return; }
-    var o = completar(leerForm());
-    var resumen = o.seccion + ' — ' + o.dia + ' ' + o.ini + '-' + o.fin + ' en ' + o.aula;
+    var dias = diasMarcados(), hechos = [], fallos = [], i = 0;
     el('edGuardar').disabled = true;
-    enviar({accion: esNuevo ? 'base-crear' : 'base-editar',
-            id: esNuevo ? '' : v.id, dictado: o, forzar: !!forzar, resumen: resumen},
-      function(res){
-        el('edGuardar').disabled = false;
-        if(res.ok){ cerrarPanel(); S.tab='horarios'; render(); return; }
-        if(res.cruce && res.cruce.length && !forzar){
-          if(confirm(res.error + '\n\n¿Registrarlo igual como solape autorizado?')) guardar(true);
-          return;
-        }
-        alert('No se pudo guardar: ' + (res.error || 'error desconocido'));
+
+    function siguiente(forzar){
+      if(i >= dias.length){ terminar(); return; }
+      var d = dias[i], o = dictadoDe(d);
+      var resumen = o.seccion + ' — ' + o.dia + ' ' + o.ini + '-' + o.fin + ' en ' + o.aula;
+      enviar({accion: esNuevo ? 'base-crear' : 'base-editar',
+              id: esNuevo ? '' : v.id, dictado: o, forzar: !!forzar, resumen: resumen},
+        function(res){
+          if(res.ok){ hechos.push(d); i++; siguiente(false); return; }
+          if(res.cruce && res.cruce.length && !forzar){
+            if(confirm(d + ': ' + res.error + '\n\n¿Registrarlo igual como solape autorizado?')){ siguiente(true); return; }
+            fallos.push(d + ' (no se guardó por el cruce)'); i++; siguiente(false); return;
+          }
+          fallos.push(d + ': ' + (res.error || 'error desconocido')); i++; siguiente(false);
+        });
+    }
+    function terminar(){
+      el('edGuardar').disabled = false;
+      if(!fallos.length){ cerrarPanel(); S.tab='horarios'; render(); return; }
+      /* Lo guardado se quita del formulario para no duplicarlo al reintentar. */
+      if(esNuevo) hechos.forEach(function(d){
+        delete filas[d];
+        document.querySelectorAll('#edDias input').forEach(function(x){ if(x.value === d) x.checked = false; });
       });
+      pintarFilas(); revisar();
+      alert((hechos.length ? 'Guardado: ' + hechos.join(', ') + '.\n' : '') + 'Pendiente: ' + fallos.join(' · ') +
+            (hechos.length && esNuevo ? '\n\nLos días guardados ya salieron del formulario; corrige lo pendiente y vuelve a guardar.' : ''));
+    }
+    siguiente(false);
   }
-  el('edGuardar').onclick = function(){ guardar(false); };
+  el('edGuardar').onclick = function(){ guardar(); };
 
   if(!esNuevo){
     el('edBaja').onclick = function(){

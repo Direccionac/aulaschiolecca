@@ -615,7 +615,12 @@ function alcanceDelTexto(t){
 }
 /* Se aplica a todo lo que llega de la sala, antes de que lo vea el resto. */
 function normCambios(lista){
-  return (lista||[]).map(function(c){
+  /* Una fila dañada en la pestaña CAMBIOS (por ejemplo, datos pegados a
+     mano) no puede tumbar la conexión: se descarta y se cuenta. */
+  var buenas = (lista||[]).filter(function(c){ return c && typeof c === 'object' && !Array.isArray(c); });
+  S.cambiosIlegibles = (lista||[]).length - buenas.length;
+  if(S.cambiosIlegibles) console.warn('CAMBIOS: ' + S.cambiosIlegibles + ' fila(s) ilegibles descartadas.');
+  return buenas.map(function(c){
     c.desde = normFecha(c.desde);
     c.hasta = normFecha(c.hasta);
     if(!c.desde && !c.hasta){
@@ -849,6 +854,7 @@ function pintarSync(){
   var estado = S.sync==='on' ? 'Sala conectada' : (S.sync==='error' ? 'Sin conexión' : 'Sin sala compartida');
   /* Que nadie tenga que adivinar si lo que ve es la base en vivo o el respaldo. */
   if(S.sync==='on') estado += S.base.origen==='sala' ? ' · base en la sala' : ' · base del archivo';
+  if(S.sync==='on' && S.cambiosIlegibles) estado += ' · ⚠ ' + S.cambiosIlegibles + ' fila(s) dañadas en CAMBIOS';
   txt.textContent = estado;
 }
 /* La base viaja solo cuando se pide (conBase): son 334 filas y no tienen

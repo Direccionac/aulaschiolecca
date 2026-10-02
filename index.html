@@ -2681,6 +2681,12 @@ function programaSugerido(tipo, seccion){
    cada uno con sus horas y su ambiente. Al editar se trabaja un solo día,
    porque cada fila de la base es un día. */
 function abrirEditor(p, pre){
+  /* Los cruces se calculan contra la base que tiene el navegador: si todavía
+     es el respaldo del archivo, el aviso de "libre" podría ser falso. */
+  if(S.base.origen !== 'sala'){
+    alert('La programación en vivo todavía no cargó: estás viendo el respaldo del archivo y los cruces no serían confiables.\n\nVe a Datos → Sincronizar ahora, espera a que arriba diga «base en la sala» y vuelve a intentarlo.');
+    return;
+  }
   var esNuevo = !p;
   var v = p || {};
   pre = pre || {};
@@ -3395,7 +3401,10 @@ window.addEventListener('resize', function(){
 });
 S.base = {origen:'archivo', filas:BASE_RESPALDO.filas, ts:'', msg:''};
 if(S.url) traer(null, true);          /* la primera lectura trae la base */
-setInterval(function(){ if(S.url) traer(); }, 15000);   /* el resto, solo los cambios */
+/* El resto, solo los cambios. Pero si la primera lectura de la base falló
+   (Google a veces responde lento o con error), se sigue pidiendo en cada
+   vuelta hasta tenerla: nadie debe quedarse trabajando sobre el respaldo. */
+setInterval(function(){ if(S.url) traer(null, S.base.origen !== 'sala'); }, 15000);
 })();
 </script>
 </body>

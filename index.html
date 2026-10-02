@@ -2978,6 +2978,20 @@ function abrirEditor(p, pre){
             if(confirm(d + ': ' + res.error + '\n\n¿Registrarlo igual como solape autorizado?')){ siguiente(true); return; }
             fallos.push(d + ' (no se guardó por el cruce)'); i++; siguiente(false); return;
           }
+          /* Google a veces responde con una página de error aunque el dictado
+             sí se escribió. Antes de darlo por fallido se relee la base y se
+             busca: así nadie lo vuelve a crear y queda duplicado. */
+          if(/JSON|token|Failed to fetch|NetworkError/i.test(res.error || '')){
+            traer(function(){
+              var ya = D.prog.some(function(q){
+                return q.seccion === o.seccion && q.dia === o.dia && q.ini === o.ini && q.aula === o.aula && q.activo !== 'NO';
+              });
+              if(ya) hechos.push(d);
+              else fallos.push(d + ': el servidor no respondió bien y no aparece en la base; vuelve a guardarlo');
+              i++; siguiente(false);
+            }, true);
+            return;
+          }
           fallos.push(d + ': ' + (res.error || 'error desconocido')); i++; siguiente(false);
         });
     }

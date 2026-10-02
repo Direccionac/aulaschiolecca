@@ -856,6 +856,7 @@ function pintarSync(){
   if(S.sync==='on') estado += S.base.origen==='sala' ? ' · base en la sala' : ' · base del archivo';
   if(S.sync==='on' && S.cambiosIlegibles) estado += ' · ⚠ ' + S.cambiosIlegibles + ' fila(s) dañadas en CAMBIOS';
   txt.textContent = estado;
+  txt.title = S.syncMsg || '';   /* al pasar el mouse se ve el motivo exacto */
 }
 /* La base viaja solo cuando se pide (conBase): son 334 filas y no tienen
    por qué releerse en cada sincronización de 15 segundos. */
@@ -1301,6 +1302,7 @@ function abrirDictado(p){
   el('rBaja').onclick = function(){
     var a = alcance();
     var r = fechasClase(p.dia, a.desde, a.hasta);
+    if(!r.fechas.length){ alert('El rango elegido no contiene ninguna clase del ' + p.dia.toLowerCase() + '. Corrige las fechas antes de proponer.'); return; }
     proponer({did:p.id, accion:'desactivar', desde:a.desde, hasta:a.hasta, alcance:a.modo, clases:r.fechas.length,
               motivo: el('rMotivo').value,
               resumen: p.seccion+' — dar de baja el dictado del '+p.dia+' '+p.horario+' ('+
@@ -1441,6 +1443,19 @@ function abrirColocar(aula, dia, desde, hasta, dur){
   function contarEvento(){
     var a = alcanceEvento();
     var r = fechasClase(dia, a.desde, a.hasta);
+    /* La reserva es para un día de la semana concreto (el de la celda que se
+       abrió). Si la fecha elegida no cae ese día, no hay ninguna clase que
+       reservar: se avisa en rojo y no se deja enviar. */
+    if(!r.fechas.length){
+      var nd = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][aFecha(a.desde).getDay()];
+      el('eCuantas').innerHTML = '<span style="color:var(--color-accent-2-600,#c0392b);font-weight:600">' +
+        (a.desde===a.hasta
+          ? 'El ' + esc(corta(a.desde)) + ' es ' + nd + ', no ' + esc(dia.toLowerCase()) + '. Esta reserva es para el ' + esc(dia.toLowerCase()) +
+            ': elige una fecha que caiga ' + esc(dia.toLowerCase()) + ', o abre la reserva desde la columna del ' + nd + '.'
+          : 'Entre ' + esc(corta(a.desde)) + ' y ' + esc(corta(a.hasta)) + ' no hay ningún ' + esc(dia.toLowerCase()) + ' con clases.') +
+        '</span>';
+      return;
+    }
     el('eCuantas').textContent = a.desde===a.hasta
       ? 'Una sola vez: ' + larga(a.desde)
       : r.fechas.length + ' ' + dia.toLowerCase() + (r.fechas.length===1?'':'s') + ', de ' + corta(a.desde) + ' a ' + corta(a.hasta) +
@@ -1457,6 +1472,7 @@ function abrirColocar(aula, dia, desde, hasta, dur){
     var area = el('eArea').value;
     var a = alcanceEvento();
     var fs = fechasClase(dia, a.desde, a.hasta);
+    if(!fs.fechas.length){ contarEvento(); alert(el('eCuantas').textContent); return; }
     proponer({accion:'evento', did:'', aula:aula, dia:dia, ini:r.ini, fin:r.fin,
               desde:a.desde, hasta:a.hasta, alcance:(a.desde===a.hasta?'una':'rango'), clases:fs.fechas.length,
               titulo:titulo, docente:el('eDocente').value.trim(), alumnos:el('eAlumnos').value,

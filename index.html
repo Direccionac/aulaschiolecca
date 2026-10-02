@@ -895,14 +895,28 @@ function enviar(payload, cb){
   if(!S.sesion){ cb({ok:false,error:'Primero identifícate.'}); return; }
   payload.correo = S.sesion.correo;
   payload.clave  = S.sesion.clave;
+  /* Si Google no contesta en 90 segundos se corta la espera: el botón no puede
+     quedarse colgado para siempre. Quien llama decide qué hacer (el editor de
+     Horarios relee la base para ver si igual se guardó). */
+  var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var reloj = ctl ? setTimeout(function(){ ctl.abort(); }, 90000) : null;
+  var respondido = false;
+  function una(j){ if(respondido) return; respondido = true; if(reloj) clearTimeout(reloj); cb(j); }
   fetch(S.url, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},  /* evita el preflight que Apps Script no responde */
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: ctl ? ctl.signal : undefined
   })
   .then(function(r){ return r.json(); })
-  .then(function(j){ if(j && j.ok){ S.cambios = j.cambios ? normCambios(j.cambios) : S.cambios; if(j.base) aplicarBase(j.base); } cb(j||{ok:false,error:'Respuesta vacía'}); render(); })
-  .catch(function(e){ cb({ok:false,error:e.message}); });
+  .then(function(j){
+    if(j && j.ok){ S.cambios = j.cambios ? normCambios(j.cambios) : S.cambios; if(j.base) aplicarBase(j.base); }
+    una(j||{ok:false,error:'Respuesta vacía'});
+    try { render(); } catch(e){ console.error(e); }
+  })
+  .catch(function(e){
+    una({ok:false, error: (e && e.name === 'AbortError') ? 'Tiempo agotado: Google no respondió en 90 segundos' : (e && e.message) || 'Error de red'});
+  });
 }
 
 /* ---------- identidad ---------- */
@@ -2991,6 +3005,7 @@ function abrirEditor(p, pre){
     function siguiente(forzar){
       if(i >= dias.length){ terminar(); return; }
       var d = dias[i], o = dictadoDe(d);
+      el('edGuardar').textContent = 'Guardando ' + d.toLowerCase() + (dias.length > 1 ? ' (' + (i+1) + ' de ' + dias.length + ')' : '') + '… no cierres';
       var resumen = o.seccion + ' — ' + o.dia + ' ' + o.ini + '-' + o.fin + ' en ' + o.aula;
       enviar({accion: esNuevo ? 'base-crear' : 'base-editar',
               id: esNuevo ? '' : v.id, dictado: o, forzar: !!forzar, resumen: resumen},
@@ -3003,7 +3018,7 @@ function abrirEditor(p, pre){
           /* Google a veces responde con una página de error aunque el dictado
              sí se escribió. Antes de darlo por fallido se relee la base y se
              busca: así nadie lo vuelve a crear y queda duplicado. */
-          if(/JSON|token|Failed to fetch|NetworkError/i.test(res.error || '')){
+          if(/JSON|token|Failed to fetch|NetworkError|Tiempo agotado|Error de red/i.test(res.error || '')){
             traer(function(){
               var ya = D.prog.some(function(q){
                 return q.seccion === o.seccion && q.dia === o.dia && q.ini === o.ini && q.aula === o.aula && q.activo !== 'NO';
@@ -3019,6 +3034,7 @@ function abrirEditor(p, pre){
     }
     function terminar(){
       el('edGuardar').disabled = false;
+      el('edGuardar').textContent = esNuevo ? 'Crear el dictado' : 'Guardar los cambios';
       if(!fallos.length){ cerrarPanel(); S.tab='horarios'; render(); return; }
       /* Lo guardado se quita del formulario para no duplicarlo al reintentar. */
       if(esNuevo) hechos.forEach(function(d){

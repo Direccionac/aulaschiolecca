@@ -2564,6 +2564,36 @@ function vigenciaCorta(p){
   return p.vigHasta ? 'hasta ' + p.vigHasta : 'desde ' + p.vigDesde;
 }
 
+/* La base dice dónde se programó; los cambios aprobados vigentes dicen dónde
+   está de verdad. Se muestran debajo del ambiente para que no parezca que
+   un cambio aprobado "no se hizo". */
+function notaCambios(p){
+  var hoy = hoyIso();
+  var l = (S.cambios || []).filter(function(c){
+    return c.estado === 'aprobado' && String(c.did) === String(p.id) &&
+           (c.accion === 'mover' || c.accion === 'desactivar') && alcanceDe(c).hasta >= hoy;
+  });
+  if(!l.length) return '';
+  /* Si un cambio posterior cubre las mismas fechas, manda el posterior. */
+  l.sort(function(a, b){ return String(b.tsResuelto||b.ts||'').localeCompare(String(a.tsResuelto||a.ts||'')); });
+  var vistos = [];
+  l = l.filter(function(c){
+    var a = alcanceDe(c);
+    var tapado = vistos.some(function(v){ return v.desde <= a.desde && v.hasta >= a.hasta; });
+    vistos.push(a);
+    return !tapado;
+  });
+  return l.map(function(c){
+    var t;
+    if(c.accion === 'mover'){
+      t = '→ ' + (c.aula || p.aula) + (c.dia && c.dia !== p.dia ? ' (' + c.dia + ')' : '');
+      if(c.ini && c.fin && (hora(c.ini) !== p.ini || hora(c.fin) !== p.fin)) t += ' ' + hora(c.ini) + '–' + hora(c.fin);
+    } else t = 'sin clase';
+    return '<div style="font-size:12px;font-weight:400;color:var(--color-accent,#0b7a95);margin-top:2px">' +
+           esc(t) + ' · ' + esc(textoAlcance(c)) + '</div>';
+  }).join('');
+}
+
 function vHorarios(){
   var modo = S.edModo || 'seccion';
   var lista = modo === 'ambiente' ? aulasDelCatalogo() : clavesDeBase('seccion');
@@ -2599,24 +2629,25 @@ function vHorarios(){
     g += '<h3 style="font-size:17px;margin:22px 0 6px">' + d +
          (dd.length ? '' : ' <span style="font-size:13px;font-weight:400;opacity:.5">— libre</span>') + '</h3>';
     if(dd.length){
-      g += '<table class="table"><thead><tr><th>Hora</th><th>' +
+      g += '<div style="overflow-x:auto"><table class="table"><thead><tr>' + (soyAdmin() ? '<th></th>' : '') + '<th>Hora</th><th>' +
            (modo==='ambiente' ? 'Sección' : 'Ambiente') +
-           '</th><th>Curso</th><th>Docente</th><th>Alum.</th><th>Vigencia</th><th></th></tr></thead><tbody>';
+           '</th><th>Curso</th><th>Docente</th><th>Alum.</th><th>Vigencia</th></tr></thead><tbody>';
       dd.forEach(function(p){
         var baja = p.activo !== 'SÍ';
+        /* El botón Editar va en la primera columna: así se ve siempre, aunque
+           la tabla sea más ancha que la pantalla. */
         g += '<tr'+(baja?' style="opacity:.5"':'')+'>' +
+          (soyAdmin() ? '<td style="white-space:nowrap"><button class="btn btn-secondary btn-chico" data-ed="'+esc(p.id)+'">Editar</button></td>' : '') +
           '<td style="white-space:nowrap">'+esc(p.ini)+'–'+esc(p.fin)+'</td>' +
           '<td><strong>'+esc(modo==='ambiente' ? p.seccion : p.aula)+'</strong>' +
-            (baja?' <span class="tag tag-neutral">de baja</span>':'')+'</td>' +
+            (baja?' <span class="tag tag-neutral">de baja</span>':'') + notaCambios(p) + '</td>' +
           '<td style="font-size:13px">'+esc(p.curso)+'</td>' +
           '<td style="font-size:13px">'+esc(p.docente)+'</td>' +
           '<td>'+esc(p.alumnos)+'</td>' +
           '<td style="font-size:12.5px;opacity:.8">'+esc(vigenciaCorta(p))+'</td>' +
-          '<td style="text-align:right;white-space:nowrap">' +
-            (soyAdmin() ? '<button class="btn btn-secondary btn-chico" data-ed="'+esc(p.id)+'">Editar</button>' : '') +
-          '</td></tr>';
+          '</tr>';
       });
-      g += '</tbody></table>';
+      g += '</tbody></table></div>';
     }
     if(soyAdmin()){
       g += '<button class="btn btn-secondary btn-chico" data-nuevo="'+esc(d)+'" style="margin-top:6px">Agregar bloque el '+d.toLowerCase()+'</button>';
@@ -2648,6 +2679,157 @@ function vHorarios(){
     });
   }
 }
+
+/* ════════════════════════════════════════════════════════════════
+   OCUPACIÓN REAL DE LOS AMBIENTES
+   La base dice dónde se programó cada dictado; los cambios aprobados
+   dicen dónde está de verdad. Aquí se combinan las dos cosas:
+   - una reubicación aprobada saca el dictado de su aula original en
+     sus fechas y lo pone en la nueva;
+   - una baja aprobada lo saca en sus fechas;
+   - un evento aprobado ocupa su ambiente en sus fechas.
+   Si un dictado tiene varios cambios, manda el último aprobado.
+   El mismo código corre en el portal y en el servidor, para que los
+   dos digan lo mismo.
+   ════════════════════════════════════════════════════════════════ */
+var OCUP = (function () {
+  var ABIERTO_D = '0000-01-01', ABIERTO_H = '9999-12-31';
+  var MESES = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, set: 9, sep: 9, oct: 10, nov: 11, dic: 12 };
+  var NUMDIA = { 'Domingo': 0, 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6 };
+
+  function iso(v) { var s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''; }
+  function dosDig(n) { return ('0' + n).slice(-2); }
+  function hoy() { var d = new Date(); return d.getFullYear() + '-' + dosDig(d.getMonth() + 1) + '-' + dosDig(d.getDate()); }
+  function masDias(f, n) { var p = f.split('-'); var d = new Date(+p[0], +p[1] - 1, +p[2] + n); return d.getFullYear() + '-' + dosDig(d.getMonth() + 1) + '-' + dosDig(d.getDate()); }
+  function semana(f) { var p = f.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).getDay(); }
+  function hhmm(v) { var m = String(v || '').match(/(\d{1,2}):(\d{2})/); return m ? dosDig(+m[1]) + ':' + m[2] : ''; }
+  function min(v) { var h = hhmm(v); if (!h) return NaN; return (+h.slice(0, 2)) * 60 + (+h.slice(3)); }
+  function corta(d, mes, anio) { var m = MESES[String(mes).toLowerCase().slice(0, 3)]; return m ? anio + '-' + dosDig(m) + '-' + dosDig(d) : ''; }
+
+  /* Fechas de un cambio. Las filas antiguas no las guardaban: se leen del
+     resumen ("desde el 28 set hasta fin de ciclo", "solo el 5 oct"...).
+     Sin nada legible, vale todo el ciclo. */
+  function alcance(c) {
+    var d = iso(c.desde), h = iso(c.hasta);
+    if (d || h) return { desde: d || ABIERTO_D, hasta: h || d };
+    var t = String(c.resumen || ''), y = hoy().slice(0, 4), m, a, b;
+    if ((m = /solo el\s+(\d{1,2})\s+([a-zA-Z]{3})/i.exec(t))) { a = corta(m[1], m[2], y); if (a) return { desde: a, hasta: a }; }
+    if ((m = /(\d{1,2})\s+([a-zA-Z]{3})\s*(?:\u2192|->)\s*(\d{1,2})\s+([a-zA-Z]{3})/.exec(t))) {
+      a = corta(m[1], m[2], y); b = corta(m[3], m[4], y); if (a && b) return { desde: a, hasta: b };
+    }
+    if ((m = /desde el\s+(\d{1,2})\s+([a-zA-Z]{3})\s+hasta fin de ciclo/i.exec(t))) { a = corta(m[1], m[2], y); if (a) return { desde: a, hasta: ABIERTO_H }; }
+    if ((m = /\u00b7\s*(\d{1,2})\s+([a-zA-Z]{3})\s*$/.exec(t))) { a = corta(m[1], m[2], y); if (a) return { desde: a, hasta: a }; }
+    return { desde: ABIERTO_D, hasta: ABIERTO_H };
+  }
+
+  /* Reemplaza en la línea de tiempo el tramo [d, h] por "slot" (null = libre). */
+  function cortar(segs, d, h, slot) {
+    var r = [];
+    segs.forEach(function (s) {
+      if (s.hasta < d || s.desde > h) { r.push(s); return; }
+      if (s.desde < d) r.push({ desde: s.desde, hasta: masDias(d, -1), slot: s.slot });
+      r.push({ desde: s.desde > d ? s.desde : d, hasta: s.hasta < h ? s.hasta : h, slot: slot });
+      if (s.hasta > h) r.push({ desde: masDias(h, 1), hasta: s.hasta, slot: s.slot });
+    });
+    return r;
+  }
+
+  /* Lista de ocupaciones efectivas: {id, etiqueta, aula, dia, ini, fin,
+     vigDesde, vigHasta, fechas}. vigDesde/vigHasta vacíos = sin límite. */
+  function ocupaciones(prog, cambios) {
+    var aprob = (cambios || []).filter(function (c) { return String(c.estado) === 'aprobado'; })
+      .sort(function (a, b) { return String(a.tsResuelto || a.ts || '').localeCompare(String(b.tsResuelto || b.ts || '')); });
+    var porDid = {};
+    aprob.forEach(function (c) { var k = String(c.did || ''); (porDid[k] = porDid[k] || []).push(c); });
+    var out = [];
+
+    function aplicar(base, clave) {
+      var segs = [{ desde: ABIERTO_D, hasta: ABIERTO_H, slot: base }];
+      (porDid[clave] || []).forEach(function (c) {
+        if (c.accion !== 'mover' && c.accion !== 'desactivar') return;
+        var a = alcance(c), nuevo = null;
+        if (c.accion === 'mover') {
+          nuevo = {};
+          for (var k in base) nuevo[k] = base[k];
+          if (c.aula) nuevo.aula = String(c.aula);
+          if (c.dia) nuevo.dia = String(c.dia);
+          if (hhmm(c.ini)) nuevo.ini = hhmm(c.ini);
+          if (hhmm(c.fin)) nuevo.fin = hhmm(c.fin);
+          nuevo.movido = true;
+        }
+        segs = cortar(segs, a.desde, a.hasta, nuevo);
+      });
+      segs.forEach(function (s) {
+        if (!s.slot) return;
+        var vd = iso(s.slot.vigDesde), vh = iso(s.slot.vigHasta);
+        var d = (vd && vd > s.desde) ? vd : s.desde, h = (vh && vh < s.hasta) ? vh : s.hasta;
+        if (d > h) return;
+        var o = {};
+        for (var k in s.slot) o[k] = s.slot[k];
+        o.vigDesde = d === ABIERTO_D ? '' : d;
+        o.vigHasta = h === ABIERTO_H ? '' : h;
+        out.push(o);
+      });
+    }
+
+    (prog || []).forEach(function (q) {
+      if (String(q.activo).toUpperCase() === 'NO') return;
+      aplicar({ id: String(q.id), etiqueta: q.seccion + ' (' + hhmm(q.ini) + '-' + hhmm(q.fin) + ', ' + q.curso + ')',
+                aula: String(q.aula), dia: q.dia, ini: hhmm(q.ini), fin: hhmm(q.fin),
+                vigDesde: q.vigDesde || '', vigHasta: q.vigHasta || '', fechas: q.fechas || '' }, String(q.id));
+    });
+    aprob.forEach(function (c) {
+      if (c.accion !== 'evento' || !c.aula || !c.dia) return;
+      var a = alcance(c);
+      aplicar({ id: 'ev-' + c.cid, etiqueta: 'Evento «' + (c.titulo || c.resumen || c.cid) + '» (' + hhmm(c.ini) + '-' + hhmm(c.fin) + ')',
+                aula: String(c.aula), dia: c.dia, ini: hhmm(c.ini), fin: hhmm(c.fin),
+                vigDesde: a.desde === ABIERTO_D ? '' : a.desde, vigHasta: a.hasta === ABIERTO_H ? '' : a.hasta, fechas: '' }, 'ev-' + c.cid);
+    });
+    return out;
+  }
+
+  function listaFechas(v) {
+    if (!v) return [];
+    return (Object.prototype.toString.call(v) === '[object Array]' ? v : String(v).split(',')).map(iso).filter(String);
+  }
+
+  /* Primera fecha de clase que comparten x e y desde hoy, o ''. */
+  function fechaComun(x, y) {
+    var desde = [hoy(), iso(x.vigDesde), iso(y.vigDesde)].filter(String).sort().pop();
+    var hs = [iso(x.vigHasta), iso(y.vigHasta)].filter(String).sort();
+    var hasta = hs.length ? hs[0] : ABIERTO_H;
+    if (desde > hasta) return '';
+    var fx = listaFechas(x.fechas), fy = listaFechas(y.fechas);
+    var dentro = function (f) { return f >= desde && f <= hasta; };
+    if (fx.length && fy.length) return fx.filter(function (f) { return fy.indexOf(f) >= 0 && dentro(f); }).sort()[0] || '';
+    if (fx.length || fy.length) return (fx.length ? fx : fy).filter(dentro).sort()[0] || '';
+    var obj = NUMDIA[x.dia]; if (obj === undefined) return desde;
+    var f = desde;
+    for (var i = 0; i < 7 && f <= hasta; i++) { if (semana(f) === obj) return f; f = masDias(f, 1); }
+    return '';
+  }
+
+  /* Cruces de un dictado "o" contra la ocupación real. idPropio se ignora
+     (al editar, el dictado no choca consigo mismo). */
+  function cruces(o, prog, cambios, idPropio) { return crucesEn(o, ocupaciones(prog, cambios), idPropio); }
+  function crucesEn(o, lista, idPropio) {
+    if (String(o.activo).toUpperCase() === 'NO' || String(o.aula).toUpperCase() === 'VIRTUAL') return [];
+    var a = min(o.ini), b = min(o.fin);
+    if (isNaN(a) || isNaN(b) || b <= a) return [];
+    var r = [];
+    lista.forEach(function (q) {
+      if (idPropio && q.id === String(idPropio)) return;
+      if (q.aula !== String(o.aula) || q.dia !== o.dia) return;
+      var qa = min(q.ini), qb = min(q.fin);
+      if (isNaN(qa) || isNaN(qb) || !(qa < b && a < qb)) return;
+      var f = fechaComun(o, q);
+      if (f) r.push(q.etiqueta + ', desde el ' + f.slice(8, 10) + '-' + f.slice(5, 7) + '-' + f.slice(0, 4) + (q.movido ? ' — reubicado aquí' : ''));
+    });
+    return r;
+  }
+
+  return { ocupaciones: ocupaciones, cruces: cruces, crucesEn: crucesEn, fechaComun: fechaComun, alcance: alcance };
+})();
 
 /* ---- Ayudas del formulario (v12) ----
    normHora acepta 8, 8:00, 8.00, 0800, 8h, 7pm, 19:00 hrs y las deja como HH:MM.
@@ -2885,22 +3067,15 @@ function abrirEditor(p, pre){
     for(var i = 0; i < 7 && f <= hasta; i++){ if(semanaDia(f) === obj) return f; f = masDias(f, 1); }
     return '';
   }
+  /* Ocupación real = base + cambios aprobados (reubicaciones, bajas y
+     eventos). Se calcula una vez por revisión: es la misma regla que usa
+     el servidor al guardar. */
+  var ocupCache = null;
   function choquesDe(o){
-    if(o.activo === 'NO' || o.aula === 'VIRTUAL') return [];
-    var a = min(o.ini), b = min(o.fin);
-    if(!valida(a,b) || b <= a) return [];
+    if(!ocupCache) ocupCache = OCUP.ocupaciones(D.prog, S.cambios);
     /* Al editar se comparan las fechas sueltas propias del bloque. */
     var yo = o; if(!esNuevo && v.fechas){ yo = {}; for(var k in o) yo[k] = o[k]; yo.fechas = v.fechas; }
-    var r = [];
-    D.prog.forEach(function(q){
-      if(!esNuevo && String(q.id) === String(v.id)) return;
-      if(q.aula !== o.aula || q.dia !== o.dia || q.activo === 'NO') return;
-      var qa = min(q.ini), qb = min(q.fin);
-      if(!valida(qa,qb) || !(qa < b && a < qb)) return;
-      var f = fechaComun(yo, q);
-      if(f) r.push(q.seccion + ' (' + q.horario + ', ' + q.curso + ', desde el ' + corta(f) + ')');
-    });
-    return r;
+    return OCUP.crucesEn(yo, ocupCache, esNuevo ? '' : v.id);
   }
   /* Ambientes sin cruce en ese mismo horario, los más parecidos primero:
      mismo tipo de aula y aforo suficiente para los alumnos. */
@@ -2929,6 +3104,7 @@ function abrirEditor(p, pre){
 
   /* Se revisa mientras escribe: el servidor lo vuelve a comprobar al guardar. */
   function revisar(){
+    ocupCache = null;
     recogerFilas();
     pistas();
     var c = comunes(), msg = [], choquesTodos = [];

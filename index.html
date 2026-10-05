@@ -1887,31 +1887,55 @@ function vLibres(){
 
   g += '<div class="regla-fina" style="margin:34px 0 18px"></div>';
   g += '<h3 style="font-size:20px">Panorama de la semana</h3>';
-  g += '<p style="font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 14px">Un ambiente aparece libre en un turno cuando no tiene ningún dictado activo en él. Ojo: libre el turno completo, no a medias.</p>';
-  var reservadas = D.aulas.filter(function(a){ return a.bloqueada; });
-  if(reservadas.length){
-    g += '<div class="aviso"><b>Fuera del pool:</b> ' +
-         reservadas.map(function(a){ return esc(a.aula)+' — '+esc(a.bloqueada); }).join(' · ') +
-         '. Se descuenta solo en los turnos y fechas que indica cada reserva.</div>';
-  }
-  var salas = D.aulas;
-  g += '<table class="table"><thead><tr><th>Día</th>' + TURNOS.map(function(t){return '<th>'+t+'</th>';}).join('') + '</tr></thead><tbody>';
-  DIAS.forEach(function(d){
-    g += '<tr><td><strong>'+d+'</strong></td>';
-    TURNOS.forEach(function(t){
-      var libres = salas.filter(function(a){ return !bloqueoAplica(a, FRANJA[t][0], FRANJA[t][1]) && !act.some(function(p){return p.aula===a.aula && p.dia===d && p.turno===t;}); }).map(function(a){ return a.aula; });
-      g += '<td style="font-size:13px">'+(libres.length ? esc(libres.join(', ')) + ' <span class="tag tag-neutral">'+libres.length+'</span>' : '<span class="tag tag-accent-2">Ninguna</span>')+'</td>';
-    });
-    g += '</tr>';
-  });
-  g += '</tbody></table>';
+  g += '<div id="hPan"></div>';
 
   el('vista').innerHTML = g;
+
+  /* Panorama de la semana: respeta Día, Tipo de ambiente, Ambiente y Alumnos del buscador. */
+  function pintarPanorama(){
+    var al = parseInt(S.hAl,10);
+    var salas = D.aulas.filter(function(a){
+      if(S.hAula!=='Cualquiera' && a.aula!==S.hAula) return false;
+      if(S.hTipo!=='Cualquiera' && a.tipo!==S.hTipo) return false;
+      if(!isNaN(al) && parseInt(a.aforo,10) < al) return false;
+      return true;
+    });
+    var diasP = S.hDia==='Todos' ? DIAS : [S.hDia];
+    var filtro = [];
+    if(S.hTipo!=='Cualquiera') filtro.push('solo ' + esc(S.hTipo));
+    if(S.hAula!=='Cualquiera') filtro.push('ambiente ' + esc(S.hAula));
+    if(!isNaN(al)) filtro.push('aforo de ' + al + ' o más');
+    if(S.hDia!=='Todos') filtro.push(esc(S.hDia));
+    var p = '<p style="font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 14px">Un ambiente aparece libre en un turno cuando no tiene ningún dictado activo en él. Ojo: libre el turno completo, no a medias.' +
+      (filtro.length ? ' Filtrado con el buscador: ' + filtro.join(' · ') + '.' : '') + '</p>';
+    var reservadas = salas.filter(function(a){ return a.bloqueada; });
+    if(reservadas.length){
+      p += '<div class="aviso"><b>Fuera del pool:</b> ' +
+           reservadas.map(function(a){ return esc(a.aula)+' — '+esc(a.bloqueada); }).join(' · ') +
+           '. Se descuenta solo en los turnos y fechas que indica cada reserva.</div>';
+    }
+    if(!salas.length){
+      el('hPan').innerHTML = p + '<div class="aviso">Ningún ambiente cumple el filtro del buscador.</div>';
+      return;
+    }
+    p += '<table class="table"><thead><tr><th>Día</th>' + TURNOS.map(function(t){return '<th>'+t+'</th>';}).join('') + '</tr></thead><tbody>';
+    diasP.forEach(function(d){
+      p += '<tr><td><strong>'+d+'</strong></td>';
+      TURNOS.forEach(function(t){
+        var libres = salas.filter(function(a){ return !bloqueoAplica(a, FRANJA[t][0], FRANJA[t][1]) && !act.some(function(q){return q.aula===a.aula && q.dia===d && q.turno===t;}); }).map(function(a){ return a.aula; });
+        p += '<td style="font-size:13px">'+(libres.length ? esc(libres.join(', ')) + ' <span class="tag tag-neutral">'+libres.length+'</span>' : '<span class="tag tag-accent-2">Ninguna</span>')+'</td>';
+      });
+      p += '</tr>';
+    });
+    p += '</tbody></table>';
+    el('hPan').innerHTML = p;
+  }
 
   function recalcular(){
     S.hDia = el('hDia').value; S.hIni = el('hIni').value; S.hFin = el('hFin').value;
     S.hDur = el('hDur').value; S.hAl = el('hAl').value; S.hTipo = el('hTipo').value;
     S.hAula = el('hAula').value;
+    pintarPanorama();
     var desde = min(S.hIni), hasta = min(S.hFin), dur = parseInt(S.hDur,10), al = parseInt(S.hAl,10);
     if(hasta <= desde || isNaN(dur)){
       el('hRes').innerHTML = '<div class="aviso">Revisa el rango de horas: la segunda debe ser posterior a la primera.</div>';

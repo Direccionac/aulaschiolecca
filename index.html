@@ -372,7 +372,7 @@ var S = {
   base:{origen:'archivo', filas:0, ts:'', msg:''},
   edModo:'seccion', edSec:'', edAmb:'',
   dpFranja:'Noche', dpIni:'18:00', dpFin:'22:30', dpTipo:'Cualquiera', dpAforo:'', dpRef:'',
-  hDia:'Todos', hIni:'08:00', hFin:'22:30', hDur:'90', hAl:'20', hTipo:'Cualquiera',
+  hDia:'Todos', hIni:'08:00', hFin:'22:30', hModo:'completo', hDur:'90', hAl:'20', hTipo:'Cualquiera',
   hAula:'Cualquiera',    // filtro de un ambiente concreto en el buscador de huecos
   cambios:[],            // propuestas e historial
   sesion:null,           // {correo,nombre,rol,clave}
@@ -1868,7 +1868,11 @@ function vLibres(){
       DIAS.map(function(d){ return '<option'+(d===S.hDia?' selected':'')+'>'+d+'</option>'; }).join('') + '</select></div>' +
     '<div class="field"><label>Entre</label><input class="input" id="hIni" type="time" value="'+esc(S.hIni)+'" style="width:130px"></div>' +
     '<div class="field"><label>y</label><input class="input" id="hFin" type="time" value="'+esc(S.hFin)+'" style="width:130px"></div>' +
-    '<div class="field"><label>Duración (min)</label>' +
+    '<div class="field"><label>Que esté libre</label><select class="input" id="hModo">' +
+      '<option value="completo"'+(S.hModo!=='parcial'?' selected':'')+'>Todo el rango</option>' +
+      '<option value="parcial"'+(S.hModo==='parcial'?' selected':'')+'>Un bloque dentro del rango</option>' +
+      '</select></div>' +
+    '<div class="field" id="hDurCampo"><label>Duración (min)</label>' +
       '<input class="input" id="hDur" type="number" value="'+esc(S.hDur)+'" step="5" min="10" list="hDurSug" style="width:120px">' +
       '<datalist id="hDurSug">' + DURACIONES.map(function(m){
         return '<option value="'+m+'">'+(m/45)+' h académica'+(m===45?'':'s')+'</option>'; }).join('') + '</datalist>' +
@@ -1934,15 +1938,20 @@ function vLibres(){
   function recalcular(){
     S.hDia = el('hDia').value; S.hIni = el('hIni').value; S.hFin = el('hFin').value;
     S.hDur = el('hDur').value; S.hAl = el('hAl').value; S.hTipo = el('hTipo').value;
-    S.hAula = el('hAula').value;
+    S.hAula = el('hAula').value; S.hModo = el('hModo').value;
     pintarPanorama();
-    var desde = min(S.hIni), hasta = min(S.hFin), dur = parseInt(S.hDur,10), al = parseInt(S.hAl,10);
+    var completo = S.hModo !== 'parcial';
+    /* Todo el rango: el ambiente tiene que estar libre de punta a punta; la duración no aplica. */
+    el('hDur').disabled = completo; el('hDurTodo').style.display = completo ? 'none' : '';
+    el('hDurCampo').style.opacity = completo ? '.45' : '';
+    var desde = min(S.hIni), hasta = min(S.hFin), al = parseInt(S.hAl,10);
+    var dur = completo ? (hasta - desde) : parseInt(S.hDur,10);
     if(hasta <= desde || isNaN(dur)){
       el('hRes').innerHTML = '<div class="aviso">Revisa el rango de horas: la segunda debe ser posterior a la primera.</div>';
       return;
     }
     /* El rango no da ni para un bloque: se dice antes de buscar, con la cuenta hecha. */
-    var avisoRango = (hasta - desde) < dur
+    var avisoRango = !completo && (hasta - desde) < dur
       ? '<div class="aviso"><b>El rango es más corto que la duración.</b> Pediste ' + dur +
         ' min dentro de una ventana de ' + (hasta - desde) + ' min (' + esc(S.hIni) + ' a ' + esc(S.hFin) +
         '). Para que entre, empieza a las ' + hhmm(hasta - dur) + ' o antes, o baja la duración a ' +
@@ -2003,8 +2012,11 @@ function vLibres(){
       el('hRes').innerHTML = cabeza + panelDiagnostico(diag, dur, true) + descarte + ficha;
       return;
     }
-    var h = avisoRango + '<p style="font-size:13px;opacity:.65;margin:6px 0 10px">' + filas.length + ' opción(es), ordenadas por día y por el aforo más ajustado primero.</p>' + descarte + panelDiagnostico(diag, dur, false);
-    h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Tipo</th><th style="text-align:right">Aforo</th><th>Ventanas libres de '+dur+' min o más</th></tr></thead><tbody>';
+    var h = avisoRango + '<p style="font-size:13px;opacity:.65;margin:6px 0 10px">' + filas.length + ' opción(es), ' +
+      (completo ? 'libres sin interrupción de ' + esc(S.hIni) + ' a ' + esc(S.hFin) + ', ' : 'con al menos ' + dur + ' min seguidos dentro del rango, ') +
+      'ordenadas por día y por el aforo más ajustado primero.</p>' + descarte + panelDiagnostico(diag, dur, false);
+    h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Tipo</th><th style="text-align:right">Aforo</th><th>' +
+      (completo ? 'Libre en el rango' : 'Ventanas libres de '+dur+' min o más') + '</th></tr></thead><tbody>';
     filas.forEach(function(f){
       h += '<tr><td>'+esc(f.dia)+'</td><td><strong>'+esc(f.aula)+'</strong></td><td>'+esc(f.tipo)+'</td>' +
         '<td class="num">'+esc(f.aforo)+'</td><td>' +
@@ -2020,11 +2032,11 @@ function vLibres(){
     document.querySelectorAll('[data-col]').forEach(function(b){
       b.onclick = function(){
         var q = b.dataset.col.split('|');
-        abrirColocar(q[0], q[1], parseInt(q[2],10), parseInt(q[3],10), parseInt(S.hDur,10));
+        abrirColocar(q[0], q[1], parseInt(q[2],10), parseInt(q[3],10), dur);
       };
     });
   }
-  ['hDia','hIni','hFin','hDur','hAl','hTipo','hAula'].forEach(function(id){
+  ['hDia','hIni','hFin','hModo','hDur','hAl','hTipo','hAula'].forEach(function(id){
     el(id).onchange = recalcular; el(id).oninput = recalcular;
   });
   el('hDurTodo').onclick = function(){

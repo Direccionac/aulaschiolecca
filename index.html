@@ -333,7 +333,8 @@ var URL_SALA = "https://script.google.com/macros/s/AKfycbxgTNL_Ft53teweQ2dEvXh7B
 var EDITORES = [
   {correo:"gpacheco@chio-lecca.edu.pe",            nombre:"Giuseppe Pacheco",      rol:"admin"},
   {correo:"lmarinc@chio-lecca.edu.pe",             nombre:"Leslie Marín",         rol:"editor"},
-  {correo:"orientacionalalumno@chio-lecca.edu.pe", nombre:"Orientación al Alumno", rol:"editor"}
+  {correo:"orientacionalalumno@chio-lecca.edu.pe", nombre:"Orientación al Alumno", rol:"editor"},
+  {correo:"cproductosacademicos@chio-lecca.edu.pe", nombre:"Annie — Productos Académicos", rol:"editor"}
 ];
 
 /* Áreas que pueden solicitar un ambiente. Edita la lista si cambia el organigrama. */
@@ -372,7 +373,7 @@ var S = {
   base:{origen:'archivo', filas:0, ts:'', msg:''},
   edModo:'seccion', edSec:'', edAmb:'',
   dpFranja:'Noche', dpIni:'18:00', dpFin:'22:30', dpTipo:'Cualquiera', dpAforo:'', dpRef:'',
-  hDia:'Todos', hIni:'08:00', hFin:'22:30', hModo:'completo', hDur:'90', hAl:'20', hTipo:'Cualquiera',
+  hDesde:'', hHasta:'', hDias:null, hIni:'08:00', hFin:'22:30', hModo:'completo', hDur:'90', hAl:'20', hTipo:'Cualquiera',
   hAula:'Cualquiera',    // filtro de un ambiente concreto en el buscador de huecos
   cambios:[],            // propuestas e historial
   sesion:null,           // {correo,nombre,rol,clave}
@@ -1325,7 +1326,7 @@ function abrirDictado(p){
 }
 
 /* ---------- colocar algo en una ventana libre ---------- */
-function abrirColocar(aula, dia, desde, hasta, dur){
+function abrirColocar(aula, dia, desde, hasta, dur, fDesde, fHasta){
   var amb = D.aulas.filter(function(a){return a.aula===aula;})[0] || {};
   var fin = Math.min(hasta, desde + (isNaN(dur)?90:dur));
   var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">'+esc(dia)+' · ventana libre '+hhmm(desde)+' – '+hhmm(hasta)+'</div>' +
@@ -1363,9 +1364,9 @@ function abrirColocar(aula, dia, desde, hasta, dur){
     '<div class="field" style="margin-top:10px"><label>Motivo o detalle</label>' +
     '<input class="input" id="eMotivo" placeholder="Queda en el historial"></div>' +
     '<div class="rejilla-campos"><div class="field"><label>Desde</label>' +
-    '<input class="input" id="eDesde" type="date" value="'+esc(fechaDe(dia, S.semana))+'" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'"></div>' +
+    '<input class="input" id="eDesde" type="date" value="'+esc(fDesde || fechaDe(dia, S.semana))+'" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'"></div>' +
     '<div class="field"><label>Hasta (vacío = un solo día)</label>' +
-    '<input class="input" id="eHasta" type="date" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'"></div></div>' +
+    '<input class="input" id="eHasta" type="date" value="'+esc(fHasta && fHasta!==fDesde ? fHasta : '')+'" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'"></div></div>' +
     '<div id="eCuantas" style="font-size:13px;opacity:.72;margin:8px 0 4px"></div>' +
     '<div id="eValida" style="margin-top:12px"></div>' +
     '<button class="btn btn-primary btn-block" id="eEnviar">Proponer el evento</button></div>';
@@ -1426,7 +1427,25 @@ function abrirColocar(aula, dia, desde, hasta, dur){
   }
 
   function validarEvento(){
-    var r = rango(), ch = choques(r, null);
+    var r = rango(), ch = [];
+    if(!valida(min(r.ini), min(r.fin))) ch.push('Escribe una hora de inicio y otra de fin válidas.');
+    else if(min(r.fin) <= min(r.ini)) ch.push('La hora de fin debe ser posterior al inicio.');
+    else {
+      var a0 = alcanceEvento(), fs0 = fechasClase(dia, a0.desde, a0.hasta).fechas, vistos = {};
+      fs0.forEach(function(f){
+        activosEnFecha(f).forEach(function(o){
+          if(o.aula!==aula || !valida(min(o.ini), min(o.fin))) return;
+          if(min(o.ini) < min(r.fin) && min(r.ini) < min(o.fin)){
+            var k = o.seccion+' ('+o.horario+')';
+            (vistos[k] = vistos[k] || []).push(corta(f));
+          }
+        });
+      });
+      Object.keys(vistos).forEach(function(k){
+        var l = vistos[k];
+        ch.push('Choca con '+k+' en '+aula+' el '+l.slice(0,4).join(', ')+(l.length>4?' y '+(l.length-4)+' fecha(s) más':'')+'.');
+      });
+    }
     var n = parseInt(el('eAlumnos').value,10), af = parseInt(amb.aforo,10);
     if(!isNaN(n) && !isNaN(af) && n > af) ch.push('El ambiente admite '+af+' personas y esperas '+n+'.');
     el('eValida').innerHTML = ch.length
@@ -1472,10 +1491,10 @@ function abrirColocar(aula, dia, desde, hasta, dur){
     }
     el('eCuantas').textContent = a.desde===a.hasta
       ? 'Una sola vez: ' + larga(a.desde)
-      : r.fechas.length + ' ' + dia.toLowerCase() + (r.fechas.length===1?'':'s') + ', de ' + corta(a.desde) + ' a ' + corta(a.hasta) +
+      : r.fechas.length + ' ' + dia.toLowerCase() + (r.fechas.length===1 || /s$/.test(dia) ? '' : 's') + ', de ' + corta(a.desde) + ' a ' + corta(a.hasta) +
         (r.saltadas.length ? ' (se salta ' + r.saltadas.map(corta).join(', ') + ' por feriado)' : '');
   }
-  ['eDesde','eHasta'].forEach(function(id){ el(id).onchange = contarEvento; });
+  ['eDesde','eHasta'].forEach(function(id){ el(id).onchange = function(){ contarEvento(); validarEvento(); }; });
   contarEvento();
   ['eAlumnos'].forEach(function(id){ el(id).oninput = validarEvento; });
   el('eEnviar').onclick = function(){
@@ -1494,7 +1513,10 @@ function abrirColocar(aula, dia, desde, hasta, dur){
               resumen:'['+area+'] Evento «'+titulo+'» en '+aula+' el '+dia+' '+r.ini+'-'+r.fin+
                       ' · '+(a.desde===a.hasta ? corta(a.desde) : fs.fechas.length+' fechas, '+corta(a.desde)+' → '+corta(a.hasta))});
   };
-  pintarLista();
+  if(fDesde && fHasta && fHasta!==fDesde){
+    var rEv = document.querySelector('input[name="modo"][value="evento"]');
+    rEv.checked = true; rEv.onchange();
+  } else pintarLista();
 }
 
 function fila(t,v){ return v ? '<dt>'+esc(t)+'</dt><dd>'+esc(v)+'</dd>' : ''; }
@@ -1528,40 +1550,108 @@ function resolver(cid, estado){
 
 /* ══════════════ VISTAS ══════════════ */
 
+/* Rango de fechas de Panorama y Grilla. Sigue a la barra de semana: si se
+   cambia de semana con las flechas, el rango se reinicia en esa semana; si se
+   eligen fechas en el calendario, la barra salta a la semana de la primera. */
+function rangoVista(clave, defecto){
+  var st = S[clave];
+  if(!st || st.semRef !== S.semana){
+    var r = defecto();
+    st = S[clave] = {desde:r[0], hasta:r[1], mes:r[0].slice(0,7), semRef:S.semana, abierto:false, sel:false};
+  }
+  return st;
+}
+function alCambiarRango(clave){
+  return function(){
+    var st = S[clave];
+    S.semana = semanaDe(st.desde); st.semRef = S.semana;
+    render();
+  };
+}
+var MAX_FECHAS_VISTA = 31;
+function fechasDelRango(st, conDomingos){
+  var out = [], f = st.desde;
+  while(f <= st.hasta && out.length < MAX_FECHAS_VISTA){ if(conDomingos || idxDia(f)!==6) out.push(f); f = masDias(f, 1); }
+  return out;
+}
+function avisoTope(st, fechas){
+  return fechas.length && fechas[fechas.length-1] < st.hasta
+    ? '<div class="aviso" style="margin:0 0 12px">Se muestran las primeras '+MAX_FECHAS_VISTA+' fechas (hasta el '+esc(corta(fechas[fechas.length-1]))+'). Acorta el rango para ver el resto.</div>'
+    : '';
+}
+function actDeFecha(f){ return esDiaDeClase(f) ? activosEnFecha(f) : []; }
+
 function vPanorama(){
-  var act = activos();
-  var docentes = {}; act.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
-  var nCruces = cruces(act).length;
-  var nAforo = act.filter(sobreAforo).length;
-  var g = '<div class="kpis">' +
+  /* Dos lecturas: la semana académica (por defecto, se navega con la barra de
+     semana) o un rango de fechas libre elegido en el calendario. */
+  var porSemana = S.panModo !== 'fechas';
+  var st = null, fechas;
+  if(porSemana){
+    var lu0 = fechaDe('Lunes', S.semana||1);
+    fechas = [0,1,2,3,4,5].map(function(k){ return masDias(lu0, k); });
+  } else {
+    st = rangoVista('panCal', function(){ var lu = fechaDe('Lunes', S.semana||1); return [lu, masDias(lu, 5)]; });
+    fechas = fechasDelRango(st);
+  }
+  var porF = {}, todos = [], docentes = {}, nCruces = 0, nAforo = 0, cruF = {};
+  fechas.forEach(function(f){
+    var a = porF[f] = actDeFecha(f);
+    todos = todos.concat(a);
+    a.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
+    nCruces += cruces(a).length; nAforo += a.filter(sobreAforo).length;
+    cruF[f] = idsEnCruce(a);
+  });
+  var unDia = fechas.length === 1;
+  var rangoTxt = unDia ? larga(fechas[0]) : (fechas.length ? corta(fechas[0]) + ' al ' + corta(fechas[fechas.length-1]) : '');
+
+  var g = '<div class="barra-filtros" style="margin-bottom:14px;align-items:flex-end">' +
+    '<div class="field"><label>Ver</label><div class="seg">' +
+      '<label class="seg-opt"><input type="radio" name="panModo" value="semana"'+(porSemana?' checked':'')+'>Semana académica</label>' +
+      '<label class="seg-opt"><input type="radio" name="panModo" value="fechas"'+(porSemana?'':' checked')+'>Por fechas</label>' +
+    '</div></div>' +
+    (porSemana
+      ? '<p style="font-size:13px;opacity:.65;margin:0 0 10px">Semana '+(S.semana||1)+' · '+esc(corta(fechas[0]))+' – '+esc(corta(fechas[5]))+'. Cambia de semana con las flechas de arriba.</p>'
+      : calRangoHtml('panCal', st)) +
+    '</div>';
+  if(!porSemana) g += avisoTope(st, fechas);
+  g += '<div class="kpis">' +
     kpi(D.aulas.length, 'ambientes', 'catálogo del edificio') +
-    kpi(act.length, 'dictados', 'programados en la semana') +
-    kpi(Object.keys(docentes).length, 'docentes', 'con carga asignada') +
-    kpi(nCruces + nAforo, 'alertas', 'cruces y aforos por resolver', nCruces+nAforo>0) +
+    kpi(todos.length, 'dictados', porSemana ? 'programados en la semana' : (unDia ? 'programados ese día' : 'sesiones en el rango')) +
+    kpi(Object.keys(docentes).length, 'docentes', porSemana ? 'con carga en la semana' : 'con carga en el rango') +
+    kpi(nCruces + nAforo, 'alertas', porSemana ? 'cruces y aforos por resolver' : 'cruces y aforos en el rango', nCruces+nAforo>0) +
     kpi(pendientes().length, 'pendientes', 'propuestas sin aprobar') +
   '</div>';
-  g += '<h2 class="titulo">Mapa de calor de la semana</h2>';
-  g += '<p class="entrada">Cada fila es un ambiente y cada columna un turno: <strong>M</strong> mañana (08:00–13:00), <strong>T</strong> tarde (13:00–18:00), <strong>N</strong> noche (18:00–22:30). Los filetes verticales separan los días. La intensidad del cian es la parte del turno que está ocupada; el magenta marca un cruce sin resolver. Haz clic en una celda para abrir ese día en la grilla.</p>';
+  g += '<h2 class="titulo">'+(porSemana ? 'Mapa de calor de la semana' : 'Mapa de calor del '+esc(rangoTxt))+'</h2>';
+  g += '<p class="entrada">Cada fila es un ambiente y cada columna un turno '+(porSemana ? 'de un día' : 'de una fecha')+': <strong>M</strong> mañana (08:00–13:00), <strong>T</strong> tarde (13:00–18:00), <strong>N</strong> noche (18:00–22:30). ' +
+       'Los filetes verticales separan '+(porSemana?'los días':'las fechas')+'. La intensidad del cian es la parte del turno ocupada; el rojo marca un cruce. Haz clic en una celda para abrir la grilla de '+(porSemana?'ese día':'esa fecha')+'.</p>';
 
-  g += '<div class="heat-scroll"><div class="heat">';
-  g += '<div class="heat-cab"><div></div>' + DIAS.map(function(d){ return '<div class="heat-dia">'+d.slice(0,3)+'</div>'; }).join('') + '</div>';
-  g += '<div class="heat-cab"><div></div>' + DIAS.map(function(){
+  var n = fechas.length * 3;
+  var colsG = 'grid-template-columns:64px repeat('+n+', minmax(13px,1fr))';
+  g += '<div class="heat-scroll"><div class="heat" style="min-width:'+Math.max(940, 64 + n*17)+'px">';
+  g += '<div class="heat-cab" style="'+colsG+'"><div></div>' + fechas.map(function(f){
+    var fer = esFeriado(f);
+    return '<div class="heat-dia" title="'+esc(larga(f)+(fer?' · '+fer:''))+'"'+(fer?' style="color:var(--color-accent-2-600,#c0392b)"':'')+'>' +
+      esc(porSemana ? DIAS[idxDia(f)].slice(0,3) : DIAS[idxDia(f)].slice(0,2)+' '+(+f.slice(8)))+'</div>';
+  }).join('') + '</div>';
+  g += '<div class="heat-cab" style="'+colsG+'"><div></div>' + fechas.map(function(){
     return TURNOS.map(function(t,k){ return '<div class="heat-turno'+(k===0?' dia-ini':'')+'">'+t[0]+'</div>'; }).join('');
   }).join('') + '</div>';
 
-  var cru = idsEnCruce(act);
   D.aulas.forEach(function(a){
-    g += '<div class="heat-fila"><div class="heat-aula">'+esc(a.aula)+'</div>';
-    DIAS.forEach(function(d){
+    g += '<div class="heat-fila" style="'+colsG+'"><div class="heat-aula">'+esc(a.aula)+'</div>';
+    fechas.forEach(function(f){
+      var fer = esFeriado(f);
       TURNOS.forEach(function(t,k){
-        var bs = act.filter(function(p){ return p.aula===a.aula && p.dia===d && p.turno===t; });
+        var bs = porF[f].filter(function(p){ return p.aula===a.aula && p.turno===t; });
         var mins = bs.reduce(function(s,p){ return valida(min(p.ini),min(p.fin)) ? s + (min(p.fin)-min(p.ini)) : s; }, 0);
-        var f = Math.min(1, mins/270);
-        var hayCruce = bs.some(function(p){ return cru[p.id]; });
-        var bg = hayCruce ? 'var(--color-accent-2-500)'
-               : (f===0 ? 'var(--color-neutral-200)' : 'color-mix(in srgb, var(--color-accent) '+Math.round(18+f*82)+'%, var(--color-neutral-100))');
-        var col = (f>0.45 || hayCruce) ? 'var(--color-bg)' : 'var(--color-text)';
-        g += '<button class="heat-celda'+(k===0?' dia-ini':'')+'" style="background:'+bg+';color:'+col+'" data-dia="'+d+'" title="'+esc(a.aula+' · '+d+' '+t+' — '+bs.length+' dictado(s), '+Math.round(mins/60*10)/10+' h')+'">'+(bs.length?bs.length:'')+'</button>';
+        var fr = Math.min(1, mins/270);
+        var hayCruce = bs.some(function(p){ return cruF[f][p.id]; });
+        var bg = fer ? 'repeating-linear-gradient(45deg,var(--color-neutral-200),var(--color-neutral-200) 3px,transparent 3px,transparent 6px)'
+               : hayCruce ? 'var(--color-accent-2-500)'
+               : (fr===0 ? 'var(--color-neutral-200)' : 'color-mix(in srgb, var(--color-accent) '+Math.round(18+fr*82)+'%, var(--color-neutral-100))');
+        var col = (fr>0.45 || hayCruce) ? 'var(--color-bg)' : 'var(--color-text)';
+        g += '<button class="heat-celda'+(k===0?' dia-ini':'')+'" style="background:'+bg+';color:'+col+'" data-fecha="'+f+'" title="'+
+             esc(a.aula+' · '+larga(f)+' · '+t+(fer ? ' — feriado' : ' — '+bs.length+' dictado(s), '+Math.round(mins/60*10)/10+' h'))+'">'+(bs.length?bs.length:'')+'</button>';
       });
     });
     g += '</div>';
@@ -1569,10 +1659,20 @@ function vPanorama(){
   g += '</div></div>';
   g += '<div class="leyenda"><span>Menos uso</span>' +
     [0,.25,.5,.75,1].map(function(f){ return '<i style="background:'+(f===0?'var(--color-neutral-200)':'color-mix(in srgb, var(--color-accent) '+Math.round(18+f*82)+'%, var(--color-neutral-100))')+'"></i>'; }).join('') +
-    '<span>Más uso</span><span style="margin-left:14px"><i style="background:var(--color-accent-2-500);vertical-align:-1px"></i> Cruce</span></div>';
+    '<span>Más uso</span><span style="margin-left:14px"><i style="background:var(--color-accent-2-500);vertical-align:-1px"></i> Cruce</span>' +
+    '<span style="margin-left:14px"><i style="background:repeating-linear-gradient(45deg,var(--color-neutral-300,#bbb),var(--color-neutral-300,#bbb) 2px,transparent 2px,transparent 4px);vertical-align:-1px"></i> Feriado</span></div>';
   el('vista').innerHTML = g;
+  if(!porSemana) calRangoBind('panCal', alCambiarRango('panCal'));
+  document.querySelectorAll('input[name="panModo"]').forEach(function(r){
+    r.onchange = function(){ S.panModo = r.value; if(r.value==='fechas') S.panCal = null; render(); };
+  });
   document.querySelectorAll('.heat-celda').forEach(function(b){
-    b.onclick = function(){ S.dia = b.dataset.dia; S.tab='grilla'; render(); };
+    b.onclick = function(){
+      var f = b.dataset.fecha;
+      S.semana = semanaDe(f);
+      S.grCal = {desde:f, hasta:f, mes:f.slice(0,7), semRef:S.semana, abierto:false, sel:false};
+      S.dia = diaDe(f); S.tab = 'grilla'; render();
+    };
   });
 }
 function kpi(n,l,d,alerta){
@@ -1580,16 +1680,14 @@ function kpi(n,l,d,alerta){
 }
 
 function vGrilla(){
-  var todosAct = activos();
-  var diasVista = S.dia==='Todos' ? DIAS : [S.dia];
-  var delRango = todosAct.filter(function(p){ return diasVista.indexOf(p.dia)>=0; });
-  var act = delRango.filter(coincide).filter(function(p){
-    return S.turno==='Todos' || p.turno===S.turno;
+  var st = rangoVista('grCal', function(){
+    if(S.dia && S.dia!=='Todos'){ var f = fechaDe(S.dia, S.semana||1); return [f, f]; }
+    var lu = fechaDe('Lunes', S.semana||1); return [lu, masDias(lu, 5)];
   });
-  var cru = idsEnCruce(todosAct);
-  var variosDias = diasVista.length > 1;
+  var fechas = fechasDelRango(st);
+  var variosDias = fechas.length > 1;
+  var BLQ = [];                                   // bloques pintados, para abrir su ficha
 
-  /* Eje fijo 08:00-22:30, o acotado al turno elegido, para que las bandas cuadren siempre. */
   var t0 = min(DIA_INI), t1 = min(DIA_FIN);
   var franjas = FRANJAS;
   if(S.turno!=='Todos'){
@@ -1599,70 +1697,84 @@ function vGrilla(){
   var span = t1 - t0;
   function px(m){ return (m - t0)/span*100; }
 
-  var docentes = {}; delRango.forEach(function(p){ if(p.docente) docentes[p.docente]=1; });
-  var aulasUso = {}; delRango.forEach(function(p){ if(p.aula) aulasUso[p.aula]=1; });
-  var nCruce = delRango.filter(function(p){ return cru[p.id]; }).length;
+  /* Datos por fecha. */
+  var datos = fechas.map(function(f){
+    var delDia = actDeFecha(f);
+    var act = delDia.filter(coincide).filter(function(p){ return S.turno==='Todos' || p.turno===S.turno; });
+    return {f:f, delDia:delDia, act:act, cru:idsEnCruce(delDia)};
+  });
+  var nDict = 0, nCruce = 0, docentes = {}, aulasUso = {};
+  datos.forEach(function(x){
+    nDict += x.delDia.length;
+    x.delDia.forEach(function(p){ if(p.docente) docentes[p.docente]=1; if(p.aula) aulasUso[p.aula]=1; if(x.cru[p.id]) nCruce++; });
+  });
 
-  /* Filas de la grilla. Con una busqueda puesta, o con la semana completa a la
-     vista, solo se muestran los ambientes que tienen algo: una columna de filas
-     vacias no dice nada. En la vista de un solo dia sin busqueda se mantienen
-     todos los ambientes de la semana, para leer el dia contra el edificio entero. */
-  function filasDe(actDia){
-    var lista = (S.q || variosDias)
-      ? D.aulas.filter(function(a){ return actDia.some(function(p){return p.aula===a.aula;}); })
-      : D.aulas.filter(function(a){ return todosAct.some(function(p){return p.aula===a.aula;}); });
-    lista = lista.slice();
-    var sueltos = (S.q || variosDias) ? actDia : todosAct;
-    sueltos.forEach(function(p){
+  /* Con una búsqueda puesta, o con varias fechas, solo los ambientes que tienen
+     algo; con una sola fecha y sin búsqueda, todo el edificio en uso esa semana. */
+  function filasDe(x){
+    var base = (S.q || variosDias) ? x.act : vigente(semanaDe(x.f)).filter(function(p){ return p.activo==='SÍ'; });
+    var lista = D.aulas.filter(function(a){ return base.some(function(p){ return p.aula===a.aula; }); }).slice();
+    base.forEach(function(p){
       if(p.aula && !lista.some(function(a){return a.aula===p.aula;})) lista.push({aula:p.aula, tipo:'Sin ambiente físico', aforo:'—'});
     });
     return lista;
   }
+  function cabFecha(x, idx){
+    var fer = esFeriado(x.f);
+    return '<div style="margin:'+(idx?'26px':'2px')+' 0 4px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">' +
+      '<h3 style="font-size:19px">'+esc(larga(x.f).charAt(0).toUpperCase()+larga(x.f).slice(1))+'</h3>' +
+      (fer ? '<span class="tag tag-accent-2">Feriado · '+esc(fer)+' · no se dicta</span>'
+           : '<span style="font-size:13px;opacity:.6">'+x.act.length+' dictado(s)</span>') + '</div>';
+  }
 
   var movil = esMovil();
-  var g = '<h2 class="titulo">'+(movil?'Agenda del día':'Grilla del día')+'</h2>' +
+  var titulo = variosDias ? 'Grilla del ' + corta(fechas[0]) + ' al ' + corta(fechas[fechas.length-1]) : (movil ? 'Agenda del día' : 'Grilla del día');
+  var g = '<h2 class="titulo">'+esc(titulo)+'</h2>' +
     '<p class="entrada" style="margin-bottom:14px">' +
     (movil ? 'Los dictados en orden, agrupados por turno. Toca uno para ver su ficha o reprogramarlo.'
            : 'Ambientes en filas, horas en columnas. Las bandas separan mañana, tarde y noche. Haz clic en un bloque para ver su ficha o reprogramarlo.') +
     '</p>';
-  g += '<div class="barra-filtros">' + segDias() + segTurnos() + buscador() + '</div>';
-  g += '<p class="linea-cifras">' + (variosDias ? '<b>Semana completa</b> · ' : '') + '<b>'+delRango.length+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
+  g += '<div class="barra-filtros" style="align-items:flex-end">' + calRangoHtml('grCal', st) + segTurnos() + buscador() + '</div>';
+  g += avisoTope(st, fechas);
+  g += '<p class="linea-cifras">' + (variosDias ? '<b>'+fechas.filter(esDiaDeClase).length+' días de clase</b> · ' : '') + '<b>'+nDict+'</b> dictados · <b>'+Object.keys(aulasUso).length+'</b> ambientes en uso · <b>'+
        Object.keys(docentes).length+'</b> docentes · <b'+(nCruce?' style="color:var(--color-accent-2)"':'')+'>'+nCruce+'</b> con cruce</p>';
 
-  /* En pantalla chica una parrilla de horas no se puede leer: se cambia de formato,
-     no de escala. Misma informacion, ordenada por hora y agrupada por turno. */
+  function enlazar(){
+    calRangoBind('grCal', alCambiarRango('grCal'));
+    enlazarFiltros();
+  }
+
   if(movil){
-    g += '<p class="linea-cifras" style="margin-top:-6px">Toca un dictado para abrir su ficha.</p>';
     var hayMovil = false;
-    diasVista.forEach(function(d){
-      var actDia = act.filter(function(p){ return p.dia===d; });
-      if(variosDias){
-        if(!actDia.length) return;
-        g += '<h3 style="font-size:19px;margin:22px 0 4px">'+esc(d)+'</h3>';
+    datos.forEach(function(x, idx){
+      if(variosDias || esFeriado(x.f)){
+        if(!x.act.length && !esFeriado(x.f)) return;
+        g += cabFecha(x, idx);
       }
       franjas.forEach(function(f){
-        var bs = actDia.filter(function(p){ return p.turno===f.t && valida(min(p.ini),min(p.fin)); })
-                    .sort(function(x,y){ return min(x.ini)-min(y.ini) || (x.aula||'').localeCompare(y.aula||''); });
+        var bs = x.act.filter(function(p){ return p.turno===f.t && valida(min(p.ini),min(p.fin)); })
+                      .sort(function(a,b){ return min(a.ini)-min(b.ini) || (a.aula||'').localeCompare(b.aula||''); });
         if(!bs.length) return;
         hayMovil = true;
         g += '<div class="agenda-turno '+f.clave+'"><b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+bs.length+'</small></div>';
         bs.forEach(function(p){
-          var cls = 'tarjeta turno-'+f.clave + (cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
+          var k = BLQ.push({p:p, cruce:!!x.cru[p.id]}) - 1;
+          var cls = 'tarjeta turno-'+f.clave + (x.cru[p.id]?' cruce':'') + (p.esEvento?' evento':'');
           var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-          g += '<button class="'+cls+'" data-id="'+esc(p.id)+'">' +
+          g += '<button class="'+cls+'" data-k="'+k+'">' +
             '<div class="aula'+((p.aula||'').length>4?' larga':'')+'">'+esc(p.aula||'—')+'<small>'+esc(p.alumnos)+' al.</small></div>' +
             '<div><div class="curso">'+esc(p.esEvento?(p.seccion||p.curso):p.curso)+'</div>' +
             '<div class="meta">'+esc(p.horario)+' · '+esc(p.seccion)+'</div>' +
-            '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
+            '<div class="meta">'+esc(p.esEvento?(p.area||'Evento'):apellido)+(x.cru[p.id]?' · Cruce sin resolver':'')+'</div>' +
             '</div></button>';
         });
       });
     });
     if(!hayMovil) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
     el('vista').innerHTML = g;
-    enlazarFiltros();
-    document.querySelectorAll('.tarjeta').forEach(function(b){
-      b.onclick = function(){ var p = activos().filter(function(x){return x.id===b.dataset.id;})[0]; if(p) abrirDictado(p); };
+    enlazar();
+    document.querySelectorAll('.tarjeta[data-k]').forEach(function(b){
+      b.onclick = function(){ var o = BLQ[+b.dataset.k]; if(o) abrirDictado(o.p); };
     });
     return;
   }
@@ -1675,39 +1787,33 @@ function vGrilla(){
 
   g += '<div class="grid-scroll"><div class="grid-cuerpo">';
   var hay = false;
-  diasVista.forEach(function(d, idx){
-    var delDia = delRango.filter(function(p){ return p.dia===d; });
-    var actDia = act.filter(function(p){ return p.dia===d; });
-
-    if(variosDias){
-      g += '<div style="margin:'+(idx?'26px':'2px')+' 0 4px;display:flex;align-items:baseline;gap:10px">' +
-        '<h3 style="font-size:19px">'+esc(d)+'</h3>' +
-           '<span style="font-size:13px;opacity:.6">'+actDia.length+' dictado(s)</span></div>';
-      if(!actDia.length){
+  datos.forEach(function(x, idx){
+    if(variosDias || esFeriado(x.f)){
+      g += cabFecha(x, idx);
+      if(esFeriado(x.f)) return;
+      if(!x.act.length){
         g += '<p style="font-size:13px;opacity:.6;margin:0 0 4px">Sin dictados con ese filtro.</p>';
         return;
       }
     }
-    hay = hay || actDia.length>0;
+    hay = hay || x.act.length>0;
 
-    /* Cabecera de franjas */
     g += '<div style="display:grid;'+cols+'"><div></div><div class="cab-franjas">' +
       franjas.map(function(f){
-        var n = delDia.filter(function(p){ return p.turno===f.t; }).length;
+        var n = x.delDia.filter(function(p){ return p.turno===f.t; }).length;
         var w = (min(f.fin)-min(f.ini))/span*100;
         return '<div class="cab-franja '+f.clave+'" style="width:'+w.toFixed(3)+'%">' +
           '<b>'+f.t+'</b><small>'+f.ini+'–'+f.fin+' · '+n+' dictados</small></div>';
       }).join('') + '</div></div>';
 
-    /* Eje de horas */
     var horas = []; for(var hh=Math.ceil(t0/60)*60; hh<=t1; hh+=60) horas.push(hh);
     g += '<div class="grid-horas" style="'+cols+'"><div></div><div style="position:relative;height:16px">' +
-      horas.map(function(x){
-        return '<div class="grid-hora" style="position:absolute;left:'+px(x).toFixed(3)+'%">'+hhmm(x)+'</div>';
+      horas.map(function(m){
+        return '<div class="grid-hora" style="position:absolute;left:'+px(m).toFixed(3)+'%">'+hhmm(m)+'</div>';
       }).join('') + '</div></div>';
 
-    filasDe(actDia).forEach(function(a){
-      var bs = actDia.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
+    filasDe(x).forEach(function(a){
+      var bs = x.act.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
       g += '<div class="grid-fila" style="'+cols+'">';
       g += '<div class="grid-aula">'+esc(a.aula)+'<small>'+esc(a.tipo==='Sin ambiente físico'?'sin ambiente':a.tipo)+'</small></div>';
       g += '<div class="grid-pista"><div class="franjas">'+fondo+'</div>';
@@ -1716,11 +1822,12 @@ function vGrilla(){
         if(izq >= 100 || izq + an <= 0) return;
         if(izq < 0){ an += izq; izq = 0; }
         if(izq + an > 100) an = 100 - izq;
+        var k = BLQ.push({p:p, cruce:!!x.cru[p.id]}) - 1;
         var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
-        var cls = 'bloque' + turnoCls + (cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
+        var cls = 'bloque' + turnoCls + (x.cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
         var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-        g += '<button class="'+cls+'" data-id="'+esc(p.id)+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
-             (cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
+        g += '<button class="'+cls+'" data-k="'+k+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
+             (x.cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
              (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
              '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +
              '<span class="hora">'+esc(p.horario)+' · '+esc(p.seccion)+' · '+esc(apellido)+'</span></button>';
@@ -1729,16 +1836,13 @@ function vGrilla(){
     });
   });
   g += '</div></div>';
-  if(!hay) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
+  if(!hay && !(fechas.length===1 && esFeriado(fechas[0]))) g += '<p class="entrada">Sin dictados con ese filtro.</p>';
   el('vista').innerHTML = g;
-  enlazarFiltros();
-  document.querySelectorAll('.bloque').forEach(function(b){
-    b.onclick = function(){ var p = activos().filter(function(x){return x.id===b.dataset.id;})[0]; if(p) abrirDictado(p); };
+  enlazar();
+  document.querySelectorAll('.bloque[data-k]').forEach(function(b){
+    b.onclick = function(){ var o = BLQ[+b.dataset.k]; if(o) abrirDictado(o.p); };
   });
-  enlazarTip('.bloque', function(b){
-    var p = activos().filter(function(x){return x.id===b.dataset.id;})[0];
-    return p ? {p:p, cruce:!!cru[p.id]} : null;
-  });
+  enlazarTip('.bloque', function(b){ return BLQ[+b.dataset.k] || null; });
 }
 
 function segTurnos(){
@@ -1857,27 +1961,44 @@ function panelDiagnostico(diag, dur, prominente){
 }
 
 function vLibres(){
-  var act = activos();
+  /* Rango de fechas por defecto: la semana que se está mirando. */
+  if(!S.hDesde) S.hDesde = fechaDe('Lunes', S.semana || 1);
+  if(!S.hHasta) S.hHasta = fechaDe('Sábado', S.semana || 1);
+  if(!S.hDias || !S.hDias.length) S.hDias = DIAS.slice();
   var g = '<h2 class="titulo">Aulas libres</h2>' +
-    '<p class="entrada">Dime qué necesitas colocar y te digo dónde entra. Abajo queda el panorama de la semana como referencia.</p>';
+    '<p class="entrada">Elige las fechas, los días y el horario que necesitas; te digo qué ambientes están libres en <b>todas</b> esas fechas.</p>';
 
+  var chip = 'display:inline-flex;align-items:center;gap:5px;padding:7px 10px;margin:0 6px 6px 0;font-size:13px;cursor:pointer;' +
+             'border:1px solid color-mix(in srgb,var(--color-text) 22%,transparent);background:var(--color-bg)';
+  var atajo = 'padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--color-accent);cursor:pointer;text-decoration:underline;margin-right:12px';
   g += '<div style="background:var(--color-surface);padding:18px 20px;border-left:4px solid var(--color-accent);margin-bottom:14px">' +
     '<div class="eyebrow" style="margin-bottom:12px">Buscador de huecos</div>' +
+    '<div class="barra-filtros" style="margin-bottom:6px;align-items:flex-end">' +
+      '<div class="field"><label>Desde</label><input class="input" id="hDesde" type="date" value="'+esc(S.hDesde)+'" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'" style="width:160px"></div>' +
+      '<div class="field"><label>Hasta</label><input class="input" id="hHasta" type="date" value="'+esc(S.hHasta)+'" min="'+esc(CICLO.ini)+'" max="'+esc(CICLO.s17fin)+'" style="width:160px"></div>' +
+      '<div class="field"><label>Días de la semana</label><div>' +
+        DIAS.map(function(d){
+          return '<label style="'+chip+'"><input type="checkbox" class="hDiaChk" value="'+esc(d)+'"'+(S.hDias.indexOf(d)>=0?' checked':'')+'>'+esc(d.slice(0,3))+'</label>';
+        }).join('') + '</div></div>' +
+    '</div>' +
+    '<div style="margin-bottom:14px">' +
+      '<button type="button" style="'+atajo+'" data-at="semana">Esta semana</button>' +
+      '<button type="button" style="'+atajo+'" data-at="mes">De hoy a fin de mes</button>' +
+      '<button type="button" style="'+atajo+'" data-at="nov">De hoy a fin de noviembre</button>' +
+      '<button type="button" style="'+atajo+'" data-at="ciclo">De hoy a fin de ciclo</button>' +
+      '<button type="button" style="'+atajo+'" data-at="lv">Lunes a viernes</button>' +
+    '</div>' +
     '<div class="barra-filtros" style="margin-bottom:0;align-items:flex-end">' +
-    '<div class="field"><label>Día</label><select class="input" id="hDia"><option value="Todos">Toda la semana</option>' +
-      DIAS.map(function(d){ return '<option'+(d===S.hDia?' selected':'')+'>'+d+'</option>'; }).join('') + '</select></div>' +
     '<div class="field"><label>Entre</label><input class="input" id="hIni" type="time" value="'+esc(S.hIni)+'" style="width:130px"></div>' +
     '<div class="field"><label>y</label><input class="input" id="hFin" type="time" value="'+esc(S.hFin)+'" style="width:130px"></div>' +
     '<div class="field"><label>Que esté libre</label><select class="input" id="hModo">' +
       '<option value="completo"'+(S.hModo!=='parcial'?' selected':'')+'>Todo el rango</option>' +
       '<option value="parcial"'+(S.hModo==='parcial'?' selected':'')+'>Un bloque dentro del rango</option>' +
       '</select></div>' +
-    '<div class="field" id="hDurCampo"><label>Duración (min)</label>' +
-      '<input class="input" id="hDur" type="number" value="'+esc(S.hDur)+'" step="5" min="10" list="hDurSug" style="width:120px">' +
+    '<div class="field" id="hDurCampo"><label>Duración (mín. 45 min)</label>' +
+      '<input class="input" id="hDur" type="number" value="'+esc(S.hDur)+'" step="5" min="45" list="hDurSug" style="width:120px">' +
       '<datalist id="hDurSug">' + DURACIONES.map(function(m){
-        return '<option value="'+m+'">'+(m/45)+' h académica'+(m===45?'':'s')+'</option>'; }).join('') + '</datalist>' +
-      '<button type="button" id="hDurTodo" style="margin-top:5px;padding:0;border:0;background:none;font:inherit;font-size:12px;' +
-      'color:var(--color-accent);cursor:pointer;text-decoration:underline">usar todo el rango</button></div>' +
+        return '<option value="'+m+'">'+(m/45)+' h académica'+(m===45?'':'s')+'</option>'; }).join('') + '</datalist></div>' +
     '<div class="field"><label>Alumnos</label><input class="input" id="hAl" type="number" value="'+esc(S.hAl)+'" min="1" style="width:100px"></div>' +
     '<div class="field"><label>Tipo de ambiente</label><select class="input" id="hTipo">' +
       ['Cualquiera'].concat(tiposAmbiente()).map(function(x){ return '<option'+(x===S.hTipo?' selected':'')+'>'+esc(x)+'</option>'; }).join('') +
@@ -1888,86 +2009,108 @@ function vLibres(){
       '</select></div>' +
     '</div></div>';
   g += '<div id="hRes"></div>';
-
   g += '<div class="regla-fina" style="margin:34px 0 18px"></div>';
-  g += '<h3 style="font-size:20px">Panorama de la semana</h3>';
+  g += '<h3 style="font-size:20px">Panorama del rango</h3>';
   g += '<div id="hPan"></div>';
-
   el('vista').innerHTML = g;
 
-  /* Panorama de la semana: respeta Día, Tipo de ambiente, Ambiente y Alumnos del buscador. */
-  function pintarPanorama(){
-    var al = parseInt(S.hAl,10);
-    var salas = D.aulas.filter(function(a){
-      if(S.hAula!=='Cualquiera' && a.aula!==S.hAula) return false;
-      if(S.hTipo!=='Cualquiera' && a.tipo!==S.hTipo) return false;
-      if(!isNaN(al) && parseInt(a.aforo,10) < al) return false;
-      return true;
-    });
-    var diasP = S.hDia==='Todos' ? DIAS : [S.hDia];
-    var filtro = [];
-    if(S.hTipo!=='Cualquiera') filtro.push('solo ' + esc(S.hTipo));
-    if(S.hAula!=='Cualquiera') filtro.push('ambiente ' + esc(S.hAula));
-    if(!isNaN(al)) filtro.push('aforo de ' + al + ' o más');
-    if(S.hDia!=='Todos') filtro.push(esc(S.hDia));
-    var p = '<p style="font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 14px">Un ambiente aparece libre en un turno cuando no tiene ningún dictado activo en él. Ojo: libre el turno completo, no a medias.' +
-      (filtro.length ? ' Filtrado con el buscador: ' + filtro.join(' · ') + '.' : '') + '</p>';
-    var reservadas = salas.filter(function(a){ return a.bloqueada; });
-    if(reservadas.length){
-      p += '<div class="aviso"><b>Fuera del pool:</b> ' +
-           reservadas.map(function(a){ return esc(a.aula)+' — '+esc(a.bloqueada); }).join(' · ') +
-           '. Se descuenta solo en los turnos y fechas que indica cada reserva.</div>';
-    }
-    if(!salas.length){
-      el('hPan').innerHTML = p + '<div class="aviso">Ningún ambiente cumple el filtro del buscador.</div>';
-      return;
-    }
-    p += '<table class="table"><thead><tr><th>Día</th>' + TURNOS.map(function(t){return '<th>'+t+'</th>';}).join('') + '</tr></thead><tbody>';
-    diasP.forEach(function(d){
-      p += '<tr><td><strong>'+d+'</strong></td>';
-      TURNOS.forEach(function(t){
-        var libres = salas.filter(function(a){ return !bloqueoAplica(a, FRANJA[t][0], FRANJA[t][1]) && !act.some(function(q){return q.aula===a.aula && q.dia===d && q.turno===t;}); }).map(function(a){ return a.aula; });
-        p += '<td style="font-size:13px">'+(libres.length ? esc(libres.join(', ')) + ' <span class="tag tag-neutral">'+libres.length+'</span>' : '<span class="tag tag-accent-2">Ninguna</span>')+'</td>';
+  /* Lo que se dicta cada fecha, calculado una sola vez por semana. */
+  var cacheSem = {}, cacheFecha = {};
+  function actDe(f){
+    if(cacheFecha[f]) return cacheFecha[f];
+    var n = semanaDe(f);
+    if(!cacheSem[n]) cacheSem[n] = vigente(n);
+    var d = diaDe(f);
+    return cacheFecha[f] = cacheSem[n].filter(function(p){ return p.activo==='SÍ' && p.enFecha!==false && p.dia===d; });
+  }
+  /* Quita del hueco las franjas que el catálogo bloquea en esa fecha concreta. */
+  function recortarEn(a, vs, f){
+    var ts = turnosBloqueo(a);
+    if(!ts.length || !bloqueoEnFecha(a, f)) return vs;
+    var out = vs.slice();
+    ts.forEach(function(t){
+      var r = FRANJA[t], nx = [];
+      out.forEach(function(v){
+        if(v[1] <= r[0] || v[0] >= r[1]){ nx.push(v); return; }
+        if(v[0] < r[0]) nx.push([v[0], r[0]]);
+        if(v[1] > r[1]) nx.push([r[1], v[1]]);
       });
-      p += '</tr>';
+      out = nx;
     });
-    p += '</tbody></table>';
-    el('hPan').innerHTML = p;
+    return out;
+  }
+  function cruzar(A, B){
+    var out = [];
+    A.forEach(function(x){ B.forEach(function(y){
+      var i = Math.max(x[0], y[0]), j = Math.min(x[1], y[1]);
+      if(j > i) out.push([i, j]);
+    }); });
+    return out;
+  }
+  function leer(){
+    S.hDesde = el('hDesde').value; S.hHasta = el('hHasta').value;
+    S.hDias = Array.prototype.slice.call(document.querySelectorAll('.hDiaChk')).filter(function(c){ return c.checked; }).map(function(c){ return c.value; });
+    S.hIni = el('hIni').value; S.hFin = el('hFin').value; S.hModo = el('hModo').value;
+    S.hDur = el('hDur').value; S.hAl = el('hAl').value; S.hTipo = el('hTipo').value; S.hAula = el('hAula').value;
   }
 
   function recalcular(){
-    S.hDia = el('hDia').value; S.hIni = el('hIni').value; S.hFin = el('hFin').value;
-    S.hDur = el('hDur').value; S.hAl = el('hAl').value; S.hTipo = el('hTipo').value;
-    S.hAula = el('hAula').value; S.hModo = el('hModo').value;
-    pintarPanorama();
+    leer();
     var completo = S.hModo !== 'parcial';
-    /* Todo el rango: el ambiente tiene que estar libre de punta a punta; la duración no aplica. */
-    el('hDur').disabled = completo; el('hDurTodo').style.display = completo ? 'none' : '';
-    el('hDurCampo').style.opacity = completo ? '.45' : '';
+    el('hDur').disabled = completo; el('hDurCampo').style.opacity = completo ? '.45' : '';
     var desde = min(S.hIni), hasta = min(S.hFin), al = parseInt(S.hAl,10);
     var dur = completo ? (hasta - desde) : parseInt(S.hDur,10);
-    if(hasta <= desde || isNaN(dur)){
-      el('hRes').innerHTML = '<div class="aviso">Revisa el rango de horas: la segunda debe ser posterior a la primera.</div>';
-      return;
+    function aviso(t){ el('hRes').innerHTML = '<div class="aviso">'+t+'</div>'; el('hPan').innerHTML = ''; }
+    if(!S.hDesde || !S.hHasta) return aviso('Elige la fecha de inicio y la de término.');
+    if(S.hHasta < S.hDesde) return aviso('La fecha «Hasta» debe ser igual o posterior a «Desde».');
+    if(!S.hDias.length) return aviso('Marca al menos un día de la semana.');
+    if(!valida(desde, hasta) || hasta <= desde) return aviso('Revisa el rango de horas: la segunda debe ser posterior a la primera.');
+    if(!completo){
+      if(isNaN(dur)) return aviso('Indica la duración en minutos, o cambia «Que esté libre» a <b>Todo el rango</b>.');
+      if(dur < 45) return aviso('La duración mínima es de 45 minutos (una hora académica).');
+      if(dur > hasta - desde) return aviso('Pediste ' + dur + ' min en una ventana de ' + (hasta - desde) + ' min (' + esc(S.hIni) + ' a ' + esc(S.hFin) +
+        '). Amplía el horario o baja la duración.');
+    }else if(dur < 45){
+      return aviso('El rango horario debe durar al menos 45 minutos (una hora académica).');
     }
-    /* El rango no da ni para un bloque: se dice antes de buscar, con la cuenta hecha. */
-    var avisoRango = !completo && (hasta - desde) < dur
-      ? '<div class="aviso"><b>El rango es más corto que la duración.</b> Pediste ' + dur +
-        ' min dentro de una ventana de ' + (hasta - desde) + ' min (' + esc(S.hIni) + ' a ' + esc(S.hFin) +
-        '). Para que entre, empieza a las ' + hhmm(hasta - dur) + ' o antes, o baja la duración a ' +
-        (hasta - desde) + ' min con «usar todo el rango».</div>'
-      : '';
-    var dias = S.hDia==='Todos' ? DIAS : [S.hDia];
-    var filas = [], motivos = [], diag = [];
+
+    /* Fechas reales de clase dentro del rango, por día de la semana. */
+    var porDia = {}, saltadas = [], total = 0;
+    S.hDias.forEach(function(d){
+      var r = fechasClase(d, S.hDesde, S.hHasta);
+      if(r.fechas.length){ porDia[d] = r.fechas; total += r.fechas.length; }
+      saltadas = saltadas.concat(r.saltadas);
+    });
+    var dias = DIAS.filter(function(d){ return porDia[d]; });
+    if(!dias.length) return aviso('Entre el ' + esc(corta(S.hDesde)) + ' y el ' + esc(corta(S.hHasta)) + ' no hay ninguna fecha de clase en los días marcados.');
+
+    var filas = [], motivos = [], diag = [], libresPorDia = {};
     D.aulas.forEach(function(a){
-      if(S.hAula!=='Cualquiera' && a.aula!==S.hAula){ return; }
-      if(bloqueoAplica(a, desde, hasta) && !recortarBloqueo(a, [[desde, hasta]], 1).length){ motivos.push(a.aula+': '+a.bloqueada); return; }
+      if(S.hAula!=='Cualquiera' && a.aula!==S.hAula) return;
       if(S.hTipo!=='Cualquiera' && a.tipo!==S.hTipo){ motivos.push(a.aula+': es '+a.tipo+', no '+S.hTipo); return; }
       if(!isNaN(al) && parseInt(a.aforo,10) < al){ motivos.push(a.aula+': aforo '+a.aforo+' y pediste '+al); return; }
       dias.forEach(function(d){
-        var vs = recortarBloqueo(a, huecos(a.aula, d, act, desde, hasta, dur), dur);
-        if(vs.length) filas.push({aula:a.aula, tipo:a.tipo, aforo:a.aforo, dia:d, vs:vs});
-        else diag.push(porQueNoEntra(a, d, act, desde, hasta, dur));
+        var comun = [[desde, hasta]], fallas = [];
+        porDia[d].forEach(function(f){
+          var vs = recortarEn(a, huecos(a.aula, d, actDe(f), desde, hasta, 1), f);
+          var antes = comun;
+          comun = cruzar(comun, vs);
+          var ok = vs.some(function(v){ return v[1]-v[0] >= dur; });
+          if(!ok || !comun.some(function(v){ return v[1]-v[0] >= dur; }) && antes.some(function(v){ return v[1]-v[0] >= dur; })){
+            var quien = actDe(f).filter(function(p){
+              return p.aula===a.aula && valida(min(p.ini),min(p.fin)) && min(p.ini) < hasta && min(p.fin) > desde;
+            }).map(function(p){ return (p.seccion||p.curso)+' '+p.horario; });
+            if(turnosBloqueo(a).length && bloqueoEnFecha(a, f) && bloqueoAplica(a, desde, hasta)) quien.push('reserva del catálogo: '+a.bloqueada);
+            fallas.push(corta(f) + (quien.length ? ' ('+quien.join('; ')+')' : ''));
+          }
+        });
+        var vs = comun.filter(function(v){ return v[1]-v[0] >= dur; });
+        if(vs.length){
+          filas.push({aula:a.aula, tipo:a.tipo, aforo:a.aforo, dia:d, vs:vs, n:porDia[d].length, f0:porDia[d][0], f1:porDia[d][porDia[d].length-1]});
+          if(vs.some(function(v){ return v[0]===desde && v[1]===hasta; })) (libresPorDia[d] = libresPorDia[d] || []).push(a.aula);
+        }else{
+          diag.push(a.aula+' · '+d+': no queda libre en '+fallas.length+' de '+porDia[d].length+' fechas — '+fallas.slice(0,3).join(', ')+(fallas.length>3?'…':''));
+        }
       });
     });
     filas.sort(function(x,y){
@@ -1975,74 +2118,87 @@ function vLibres(){
       var f = parseInt(x.aforo,10)-parseInt(y.aforo,10); if(f) return f;
       return x.aula.localeCompare(y.aula);
     });
-    /* Ficha semanal del ambiente elegido: qué tiene ocupado, día por día. */
-    var ficha = '';
-    if(S.hAula!=='Cualquiera'){
-      var amb0 = D.aulas.filter(function(a){return a.aula===S.hAula;})[0] || {};
-      ficha = '<div class="regla-fina" style="margin:18px 0 14px"></div>' +
-        '<h3 style="font-size:20px">Ambiente ' + esc(S.hAula) + ' · la semana completa</h3>' +
-        '<p style="font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 12px">' +
-          esc(amb0.tipo||'—') + ' · aforo ' + esc(amb0.aforo||'—') + ' · capacidad física ' + esc(amb0.capacidad||'—') +
-        '</p>';
-      if(amb0.bloqueada) ficha += '<div class="aviso"><b>Reservada:</b> '+esc(amb0.bloqueada)+'. Lo que aparezca abajo es lo que ya está registrado dentro de esa reserva, no espacio ofertable.</div>';
-      ficha += '<table class="table"><thead><tr><th>Día</th><th>Ocupado</th><th style="text-align:right">Horas</th></tr></thead><tbody>';
-      DIAS.forEach(function(d){
-        var bs = act.filter(function(p){ return p.aula===S.hAula && p.dia===d && valida(min(p.ini),min(p.fin)); })
-                    .sort(function(x,y){ return min(x.ini)-min(y.ini); });
-        var hs = bs.reduce(function(s,p){ return s+(min(p.fin)-min(p.ini)); },0)/60;
-        ficha += '<tr><td><strong>'+esc(d)+'</strong></td><td style="font-size:13px">' +
-          (bs.length ? bs.map(function(p){
-              return esc(p.horario)+' · '+esc(p.seccion||p.curso)+' · '+esc(p.docente||'—');
-            }).join('<br>')
-          : '<span class="tag tag-neutral">Libre todo el día</span>') +
-          '</td><td class="num">'+(Math.round(hs*10)/10 || '—')+'</td></tr>';
-      });
-      ficha += '</tbody></table>';
-    }
 
+    var rangoTxt = (S.hDesde===S.hHasta ? 'el ' + larga(S.hDesde) : 'del ' + corta(S.hDesde) + ' al ' + corta(S.hHasta));
+    var cab = '<p style="font-size:13px;opacity:.75;margin:6px 0 10px">' + total + ' fecha(s) de clase ' + esc(rangoTxt) +
+      (saltadas.length ? ' · se omiten por feriado: ' + saltadas.map(function(f){ return esc(corta(f)+' ('+FERIADOS[f]+')'); }).join(', ') : '') + '.</p>';
     var descarte = motivos.length
-      ? '<details style="margin:6px 0 10px"><summary style="font-size:13px;opacity:.65;cursor:pointer">' +
-        motivos.length + ' ambiente(s) descartado(s) — ver por qué</summary>' +
-        '<p style="font-size:13px;opacity:.75;margin:8px 0 0">' + motivos.map(esc).join('<br>') + '</p></details>'
+      ? '<details style="margin:6px 0 10px"><summary style="font-size:13px;opacity:.65;cursor:pointer">' + motivos.length +
+        ' ambiente(s) descartado(s) por tipo o aforo — ver por qué</summary><p style="font-size:13px;opacity:.75;margin:8px 0 0">' + motivos.map(esc).join('<br>') + '</p></details>'
+      : '';
+    var diagH = diag.length
+      ? '<details style="margin:6px 0 10px"><summary style="font-size:13px;opacity:.65;cursor:pointer">' + diag.length +
+        ' combinación(es) ambiente-día sin ventana en todas las fechas — ver por qué</summary><p style="font-size:13px;opacity:.75;margin:8px 0 0">' + diag.map(esc).join('<br>') + '</p></details>'
       : '';
 
     if(!filas.length){
-      var cabeza = avisoRango ||
-        '<div class="aviso"><b>Ninguna ventana libre cumple lo que pediste.</b> Abajo, ambiente por ambiente, qué lo impide y en qué franjas de ese día sí entraría.</div>';
-      el('hRes').innerHTML = cabeza + panelDiagnostico(diag, dur, true) + descarte + ficha;
-      return;
+      el('hRes').innerHTML = cab + '<div class="aviso"><b>Ningún ambiente cumple lo que pediste en todas las fechas.</b> Abre el detalle para ver qué lo impide.</div>' + descarte + diagH;
+    }else{
+      var h = cab + '<p style="font-size:13px;opacity:.65;margin:0 0 10px">' + filas.length + ' opción(es), ' +
+        (completo ? 'libres sin interrupción de ' + esc(S.hIni) + ' a ' + esc(S.hFin) : 'con al menos ' + dur + ' min seguidos dentro del rango') +
+        ' en todas sus fechas.</p>' + descarte + diagH;
+      h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Tipo</th><th style="text-align:right">Aforo</th><th style="text-align:right">Fechas</th><th>' +
+        (completo ? 'Libre en el rango' : 'Ventanas libres de '+dur+' min o más') + '</th></tr></thead><tbody>';
+      filas.forEach(function(f, i){
+        h += '<tr><td>'+esc(f.dia)+'</td><td><strong>'+esc(f.aula)+'</strong></td><td>'+esc(f.tipo)+'</td>' +
+          '<td class="num">'+esc(f.aforo)+'</td><td class="num" title="'+esc(corta(f.f0)+' → '+corta(f.f1))+'">'+f.n+'</td><td>' +
+          f.vs.slice(0,4).map(function(v){
+            return '<button class="tag tag-accent" style="margin-right:6px;border:0;cursor:pointer;font:inherit;font-size:11px" ' +
+              'data-col="'+i+'|'+v[0]+'|'+v[1]+'" title="Reservar esta ventana en todas las fechas">'+hhmm(v[0])+' – '+hhmm(v[1])+' &nbsp;+</button>';
+          }).join('') + (f.vs.length>4 ? '<span style="opacity:.55;font-size:12px">+'+(f.vs.length-4)+' más</span>' : '') +
+          '</td></tr>';
+      });
+      h += '</tbody></table>';
+      el('hRes').innerHTML = h;
+      document.querySelectorAll('[data-col]').forEach(function(b){
+        b.onclick = function(){
+          var q = b.dataset.col.split('|'), f = filas[+q[0]];
+          abrirColocar(f.aula, f.dia, parseInt(q[1],10), parseInt(q[2],10), dur, f.f0, f.f1);
+        };
+      });
     }
-    var h = avisoRango + '<p style="font-size:13px;opacity:.65;margin:6px 0 10px">' + filas.length + ' opción(es), ' +
-      (completo ? 'libres sin interrupción de ' + esc(S.hIni) + ' a ' + esc(S.hFin) + ', ' : 'con al menos ' + dur + ' min seguidos dentro del rango, ') +
-      'ordenadas por día y por el aforo más ajustado primero.</p>' + descarte + panelDiagnostico(diag, dur, false);
-    h += '<table class="table"><thead><tr><th>Día</th><th>Ambiente</th><th>Tipo</th><th style="text-align:right">Aforo</th><th>' +
-      (completo ? 'Libre en el rango' : 'Ventanas libres de '+dur+' min o más') + '</th></tr></thead><tbody>';
-    filas.forEach(function(f){
-      h += '<tr><td>'+esc(f.dia)+'</td><td><strong>'+esc(f.aula)+'</strong></td><td>'+esc(f.tipo)+'</td>' +
-        '<td class="num">'+esc(f.aforo)+'</td><td>' +
-        f.vs.slice(0,4).map(function(v){
-          return '<button class="tag tag-accent" style="margin-right:6px;border:0;cursor:pointer;font:inherit;font-size:11px" ' +
-            'data-col="'+esc(f.aula)+'|'+esc(f.dia)+'|'+v[0]+'|'+v[1]+'" ' +
-            'title="Colocar una clase o un evento en esta ventana">'+hhmm(v[0])+' – '+hhmm(v[1])+' &nbsp;+</button>';
-        }).join('') + (f.vs.length>4 ? '<span style="opacity:.55;font-size:12px">+'+(f.vs.length-4)+' más</span>' : '') +
-        '</td></tr>';
+
+    /* Panorama: por día, los ambientes libres de punta a punta en todas las fechas. */
+    var todos = null;
+    dias.forEach(function(d){
+      var l = libresPorDia[d] || [];
+      todos = todos === null ? l.slice() : todos.filter(function(x){ return l.indexOf(x) >= 0; });
     });
-    h += '</tbody></table>';
-    el('hRes').innerHTML = h + ficha;
-    document.querySelectorAll('[data-col]').forEach(function(b){
-      b.onclick = function(){
-        var q = b.dataset.col.split('|');
-        abrirColocar(q[0], q[1], parseInt(q[2],10), parseInt(q[3],10), dur);
-      };
+    var p = '<p style="font-size:14px;opacity:.72;max-width:70ch;margin:8px 0 14px">Ambientes libres <b>sin interrupción de ' + esc(S.hIni) + ' a ' + esc(S.hFin) +
+      '</b> en todas las fechas ' + esc(rangoTxt) + ', con los filtros del buscador.</p>';
+    if(dias.length > 1){
+      p += '<div class="aviso ok" style="margin-bottom:12px"><b>Libres todos los días marcados:</b> ' +
+        (todos && todos.length ? esc(todos.join(', ')) : 'ninguno') + '</div>';
+    }
+    p += '<table class="table"><thead><tr><th>Día</th><th>Libres de ' + esc(S.hIni) + ' a ' + esc(S.hFin) + '</th><th style="text-align:right">Fechas</th><th style="text-align:right">Total</th></tr></thead><tbody>';
+    dias.forEach(function(d){
+      var l = libresPorDia[d] || [];
+      p += '<tr><td><strong>'+esc(d)+'</strong></td><td style="font-size:13px">' + (l.length ? esc(l.join(', ')) : '<span class="tag tag-accent-2">Ninguno</span>') +
+        '</td><td class="num">'+porDia[d].length+'</td><td class="num">'+l.length+'</td></tr>';
     });
+    p += '</tbody></table>';
+    el('hPan').innerHTML = p;
   }
-  ['hDia','hIni','hFin','hModo','hDur','hAl','hTipo','hAula'].forEach(function(id){
+
+  /* Atajos de fechas y días. */
+  document.querySelectorAll('[data-at]').forEach(function(b){
+    b.onclick = function(){
+      var hoy = hoyIso(); if(hoy < CICLO.ini) hoy = CICLO.ini;
+      var y = hoy.slice(0,4), m = +hoy.slice(5,7);
+      var finMes = aIso(new Date(+y, m, 0, 12));
+      var t = b.dataset.at;
+      if(t==='semana'){ el('hDesde').value = fechaDe('Lunes', S.semana||1); el('hHasta').value = fechaDe('Sábado', S.semana||1); }
+      if(t==='mes'){ el('hDesde').value = hoy; el('hHasta').value = finMes; }
+      if(t==='nov'){ el('hDesde').value = hoy; el('hHasta').value = y + '-11-30'; }
+      if(t==='ciclo'){ el('hDesde').value = hoy; el('hHasta').value = CICLO.s17fin; }
+      if(t==='lv'){ document.querySelectorAll('.hDiaChk').forEach(function(c){ c.checked = c.value!=='Sábado'; }); }
+      recalcular();
+    };
+  });
+  ['hDesde','hHasta','hIni','hFin','hModo','hDur','hAl','hTipo','hAula'].forEach(function(id){
     el(id).onchange = recalcular; el(id).oninput = recalcular;
   });
-  el('hDurTodo').onclick = function(){
-    var ancho = min(el('hFin').value) - min(el('hIni').value);
-    if(ancho > 0){ el('hDur').value = ancho; recalcular(); }
-  };
+  document.querySelectorAll('.hDiaChk').forEach(function(c){ c.onchange = recalcular; });
   recalcular();
 }
 function tiposAmbiente(){
@@ -3304,48 +3460,156 @@ function ocupacionSemana(ref){
   return mapa;
 }
 
+/* ---------- calendario de rango (reutilizable) ----------
+   Un clic marca el primer día, el segundo clic el último; el tramo queda
+   sombreado. Para un solo día, dos clics en la misma fecha. */
+var CAL_ESTADOS = {};
+function calRangoTexto(st){
+  if(!st.desde) return 'Elige las fechas';
+  var n = 0, f = st.desde;
+  while(f <= st.hasta && n < 400){ if(esDiaDeClase(f)) n++; f = masDias(f, 1); }
+  return (st.desde===st.hasta ? larga(st.desde) : corta(st.desde) + ' – ' + corta(st.hasta)) +
+    ' · ' + n + ' día' + (n===1?'':'s') + ' de clase';
+}
+function calRangoHtml(id, st){
+  CAL_ESTADOS[id] = st;
+  if(!st.mes) st.mes = (st.desde || hoyIso()).slice(0,7);
+  var y = +st.mes.slice(0,4), m = +st.mes.slice(5,7);
+  var primero = st.mes + '-01';
+  var ini = masDias(primero, -idxDia(primero));          // lunes de la primera fila
+  var acento = 'var(--color-accent)';
+  var h = '<div class="field" style="position:relative"><label>Fechas</label>' +
+    '<button type="button" class="input" id="'+id+'Btn" style="text-align:left;min-width:280px;cursor:pointer">' +
+      esc(calRangoTexto(st)) + ' &nbsp;▾</button>' +
+    '<div id="'+id+'Pop" class="cal-pop" style="position:absolute;z-index:40;top:100%;left:0;margin-top:4px;width:318px;padding:12px 14px;' +
+      'background:var(--color-bg);border:1px solid color-mix(in srgb,var(--color-text) 20%,transparent);box-shadow:0 10px 30px rgba(0,0,0,.14);' +
+      'display:'+(st.abierto?'block':'none')+'">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+      '<button type="button" data-cal-mes="-1" style="border:0;background:none;font-size:18px;cursor:pointer;padding:2px 8px">‹</button>' +
+      '<strong style="font-size:14px">'+esc(MESES[m-1].charAt(0).toUpperCase()+MESES[m-1].slice(1))+' '+y+'</strong>' +
+      '<button type="button" data-cal-mes="1" style="border:0;background:none;font-size:18px;cursor:pointer;padding:2px 8px">›</button></div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;font-size:12px">' +
+      ['Lu','Ma','Mi','Ju','Vi','Sá','Do'].map(function(d){ return '<div style="opacity:.55;padding:4px 0">'+d+'</div>'; }).join('');
+  for(var k=0;k<42;k++){
+    var f = masDias(ini, k), delMes = f.slice(0,7) === st.mes;
+    var fuera = f < CICLO.ini || f > CICLO.s17fin, fer = esFeriado(f), dom = idxDia(f)===6;
+    var dentro = st.desde && f >= st.desde && f <= st.hasta, borde = f===st.desde || f===st.hasta;
+    var est = 'padding:6px 0;border:0;font:inherit;font-size:12.5px;cursor:'+(fuera?'default':'pointer')+';' +
+      'background:'+(borde ? acento : (dentro ? 'color-mix(in srgb,'+acento+' 22%,transparent)' : 'transparent'))+';' +
+      'color:'+(borde ? '#fff' : (fer ? 'var(--color-accent-2-600,#c0392b)' : 'inherit'))+';' +
+      'opacity:'+(fuera ? '.25' : (!delMes || dom ? '.45' : '1'))+';' + (f===hoyIso() ? 'outline:1px solid '+acento+';' : '');
+    h += '<button type="button" '+(fuera?'disabled ':'')+'data-cal-f="'+f+'" style="'+est+'" title="'+esc(larga(f)+(fer?' · feriado: '+fer:'')+(dom?' · domingo':''))+'">'+(+f.slice(8))+'</button>';
+  }
+  h += '</div>' +
+    '<p style="font-size:11.5px;opacity:.6;margin:8px 0 6px">' + (st.sel ? 'Ahora haz clic en el último día del rango.' :
+      'Clic en el primer día y luego en el último. Para un solo día, dos clics en la misma fecha.') + '</p>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px">' +
+      [['hoy','Hoy'],['semana','Esta semana'],['prox','Próxima semana'],['mes','Este mes']].map(function(a){
+        return '<button type="button" data-cal-at="'+a[0]+'" style="border:0;background:none;padding:0;font:inherit;color:'+acento+';text-decoration:underline;cursor:pointer">'+a[1]+'</button>';
+      }).join('') +
+      '<button type="button" data-cal-at="listo" style="margin-left:auto;border:0;background:'+acento+';color:#fff;padding:4px 12px;font:inherit;cursor:pointer">Listo</button>' +
+    '</div></div></div>';
+  return h;
+}
+function calRangoBind(id, onCambio){
+  var st = CAL_ESTADOS[id], btn = el(id+'Btn'), pop = el(id+'Pop');
+  if(!btn) return;
+  btn.onclick = function(){ st.abierto = !st.abierto; pop.style.display = st.abierto ? 'block' : 'none'; };
+  pop.onclick = function(e){
+    var t = e.target.closest('button'); if(!t || t.disabled) return;
+    if(t.dataset.calMes){
+      var y = +st.mes.slice(0,4), m = +st.mes.slice(5,7) + (+t.dataset.calMes);
+      if(m<1){ m=12; y--; } if(m>12){ m=1; y++; }
+      st.mes = y + '-' + ('0'+m).slice(-2); onCambio(false); return;
+    }
+    if(t.dataset.calF){
+      var f = t.dataset.calF;
+      if(!st.sel){ st.desde = f; st.hasta = f; st.sel = true; }
+      else { if(f < st.desde){ st.hasta = st.desde; st.desde = f; } else st.hasta = f; st.sel = false; st.abierto = false; }
+      onCambio(true); return;
+    }
+    var a = t.dataset.calAt, hoy = hoyIso(), lu = masDias(hoy, -idxDia(hoy));
+    if(a==='listo'){ st.sel = false; st.abierto = false; onCambio(false); return; }
+    if(a==='hoy'){ st.desde = st.hasta = hoy; }
+    if(a==='semana'){ st.desde = lu; st.hasta = masDias(lu, 5); }
+    if(a==='prox'){ st.desde = masDias(lu, 7); st.hasta = masDias(lu, 12); }
+    if(a==='mes'){ var y2 = +hoy.slice(0,4), m2 = +hoy.slice(5,7); st.desde = hoy.slice(0,7)+'-01'; st.hasta = aIso(new Date(y2, m2, 0, 12)); }
+    if(st.desde < CICLO.ini) st.desde = CICLO.ini;
+    if(st.hasta > CICLO.s17fin) st.hasta = CICLO.s17fin;
+    st.mes = st.desde.slice(0,7); st.sel = false; st.abierto = false; onCambio(true);
+  };
+}
+/* Cierra el calendario abierto al hacer clic fuera de él. */
+document.addEventListener('mousedown', function(e){
+  Object.keys(CAL_ESTADOS).forEach(function(id){
+    var st = CAL_ESTADOS[id], pop = el(id+'Pop'), btn = el(id+'Btn');
+    if(!st.abierto || !pop) return;
+    if(pop.contains(e.target) || (btn && btn.contains(e.target))) return;
+    st.abierto = false; st.sel = false; pop.style.display = 'none';
+  });
+});
+
+/* Fechas del rango que se muestran como columnas (sin domingos). */
+function fechasDisponibilidad(){
+  var st = S.dpCal, out = [], f = st.desde;
+  while(f <= st.hasta && out.length < 160){ if(idxDia(f)!==6) out.push(f); f = masDias(f, 1); }
+  return out;
+}
 function matrizDisponibilidad(){
   var fr = franjaActual(), a = min(fr.ini), b = min(fr.fin);
-  var ref = S.dpRef || hoyIso();
-  var mapa = ocupacionSemana(ref);
+  var fechas = fechasDisponibilidad();
   var minAf = parseInt(S.dpAforo, 10);
+  var porFecha = {};
+  fechas.forEach(function(f){ porFecha[f] = esDiaDeClase(f) ? activosEnFecha(f) : []; });
   var ambientes = D.aulas.filter(function(x){
     if(S.dpTipo && S.dpTipo !== 'Cualquiera' && x.tipo !== S.dpTipo) return false;
     if(!isNaN(minAf)){ var af = parseInt(x.aforo, 10); if(isNaN(af) || af < minAf) return false; }
     return true;
   });
   return ambientes.map(function(x){
-    var fila = {aula: x.aula, tipo: x.tipo, aforo: x.aforo, bloqueada: x.bloqueada || '', dias: {}};
-    DIAS.forEach(function(d){
-      var choques = (mapa[d + '|' + x.aula] || []).filter(function(p){
-        var pi = min(p.ini), pf = min(p.fin);
-        return valida(pi, pf) && pi < b && a < pf;
-      }).sort(function(u,v){ return min(u.ini) - min(v.ini); });
-      fila.dias[d] = choques;
+    var fila = {aula: x.aula, tipo: x.tipo, aforo: x.aforo, celdas: {}, libres: 0, clases: 0};
+    fechas.forEach(function(f){
+      var c = {estado:'libre', choques:[]};
+      if(!esDiaDeClase(f)){ c.estado = esFeriado(f) ? 'feriado' : 'sinclase'; }
+      else {
+        fila.clases++;
+        c.choques = porFecha[f].filter(function(p){
+          var pi = min(p.ini), pf = min(p.fin);
+          return p.aula === x.aula && valida(pi, pf) && pi < b && a < pf;
+        }).sort(function(u,v){ return min(u.ini) - min(v.ini); });
+        if(c.choques.length) c.estado = 'ocupado';
+        else if(x.bloqueada && bloqueoAplica(x, a, b, [f])){ c.estado = 'reservada'; c.motivo = x.bloqueada; }
+        if(c.estado === 'libre') fila.libres++;
+      }
+      fila.celdas[f] = c;
     });
+    fila.todo = fila.clases > 0 && fila.libres === fila.clases;
     return fila;
   });
 }
 
 function vDisponibilidad(){
   var fr = franjaActual();
-  var ref = S.dpRef || hoyIso();
+  if(!S.dpCal){
+    var ref = S.dpRef || hoyIso(), lu = masDias(ref, -idxDia(ref));
+    S.dpCal = {desde: lu, hasta: masDias(lu, 5), mes: lu.slice(0,7)};
+  }
+  var fechas = fechasDisponibilidad();
   var filas = matrizDisponibilidad();
+  var compacto = fechas.length > 8;
 
   var g = '<h2 class="titulo">Disponibilidad por franja</h2>';
-  g += '<p class="entrada">Qué ambientes quedan libres <strong>toda</strong> la franja, día por día. ' +
-       'Es la foto para armar un ciclo nuevo: la pestaña Aulas libres busca huecos sueltos, esta responde ' +
-       'qué está realmente disponible. Las vigencias se aplican a la fecha que elijas, así que un programa ' +
-       'que ya cerró deja de ocupar.</p>';
+  g += '<p class="entrada">Qué ambientes quedan libres <strong>toda</strong> la franja, fecha por fecha, en el rango que marques en el calendario. ' +
+       'Las vigencias, eventos, cambios aprobados y reservas del catálogo se aplican a cada fecha, así que un programa que ya cerró deja de ocupar.</p>';
 
-  g += '<div class="barra-filtros">' +
+  g += '<div class="barra-filtros" style="align-items:flex-end">' +
+    calRangoHtml('dpCal', S.dpCal) +
     '<div class="field"><label>Franja</label><select class="input" id="dpFranja" style="width:160px">' +
       ['Mañana','Tarde','Noche','Personalizada'].map(function(o){
         return '<option value="'+o+'"'+(o===(S.dpFranja||'Noche')?' selected':'')+'>'+o+'</option>'; }).join('') +
     '</select></div>' +
     '<div class="field"><label>Entre</label><input class="input" id="dpIni" type="time" value="'+esc(fr.ini)+'" style="width:130px"></div>' +
     '<div class="field"><label>y</label><input class="input" id="dpFin" type="time" value="'+esc(fr.fin)+'" style="width:130px"></div>' +
-    '<div class="field"><label>Vigente al</label><input class="input" id="dpRef" type="date" value="'+esc(ref)+'" style="width:160px"></div>' +
     '<div class="field"><label>Tipo</label><select class="input" id="dpTipo" style="width:180px">' +
       ['Cualquiera'].concat(tiposAmbiente()).map(function(o){
         return '<option value="'+esc(o)+'"'+(o===(S.dpTipo||'Cualquiera')?' selected':'')+'>'+esc(o)+'</option>'; }).join('') +
@@ -3353,30 +3617,40 @@ function vDisponibilidad(){
     '<div class="field"><label>Aforo mínimo</label><input class="input" id="dpAforo" type="number" min="0" value="'+esc(S.dpAforo||'')+'" style="width:120px"></div>' +
     '</div>';
 
-  /* Conteo por día: la lectura rápida de dónde hay aire. */
-  g += '<div class="barra-filtros" style="gap:18px;margin:2px 0 14px">';
-  DIAS.forEach(function(d){
-    var n = filas.filter(function(f){ return !f.dias[d].length && !f.bloqueada; }).length;
-    g += '<span style="font-size:13px"><strong>'+esc(d)+':</strong> '+n+' libre(s)</span>';
-  });
-  g += '</div>';
+  var todos = filas.filter(function(f){ return f.todo; });
+  var hayClase = fechas.some(esDiaDeClase);
+  g += hayClase
+    ? '<div class="aviso ok" style="margin:4px 0 14px"><b>Libres de '+esc(fr.ini)+' a '+esc(fr.fin)+' en todo el rango: '+todos.length+'</b>' +
+      (todos.length ? ' — ' + esc(todos.map(function(f){ return f.aula; }).join(', ')) : '') + '</div>'
+    : '<div class="aviso" style="margin:4px 0 14px">En las fechas marcadas no hay días de clase.</div>';
 
-  g += '<div style="overflow-x:auto"><table class="table"><thead><tr><th>Ambiente</th><th>Tipo</th><th>Aforo</th>' +
-       DIAS.map(function(d){ return '<th>'+esc(d)+'</th>'; }).join('') + '</tr></thead><tbody>';
+  var fija = 'position:sticky;left:0;background:var(--color-bg);z-index:1';
+  g += '<div style="overflow-x:auto"><table class="table"><thead><tr><th style="'+fija+'">Ambiente</th><th>Tipo</th><th>Aforo</th><th>Todo el rango</th>' +
+       fechas.map(function(f){
+         var n = filas.filter(function(x){ return x.celdas[f].estado==='libre'; }).length, fer = esFeriado(f);
+         return '<th style="white-space:nowrap">'+esc(DIAS[idxDia(f)].slice(0,3))+' '+esc(corta(f)) +
+           '<br><span style="font-weight:400;opacity:.7;text-transform:none;letter-spacing:0">' +
+           (fer ? 'feriado' : (esDiaDeClase(f) ? n+' libre(s)' : 'sin clases')) + '</span></th>';
+       }).join('') + '</tr></thead><tbody>';
   filas.forEach(function(f){
-    g += '<tr'+(f.bloqueada?' style="opacity:.55"':'')+'>' +
-      '<td><strong>'+esc(f.aula)+'</strong>'+(f.bloqueada?'<br><span class="tag tag-neutral">bloqueada</span>':'')+'</td>' +
-      '<td style="font-size:13px">'+esc(f.tipo)+'</td><td>'+esc(f.aforo)+'</td>';
-    DIAS.forEach(function(d){
-      var c = f.dias[d];
-      if(!c.length && !f.bloqueada){
-        g += '<td style="font-size:13px;color:var(--color-accent);font-weight:600">libre</td>';
-      } else if(f.bloqueada && !c.length){
-        g += '<td style="font-size:12px;opacity:.6">'+esc(f.bloqueada.slice(0,34))+'…</td>';
+    g += '<tr><td style="'+fija+'"><strong>'+esc(f.aula)+'</strong></td>' +
+      '<td style="font-size:13px">'+esc(f.tipo)+'</td><td>'+esc(f.aforo)+'</td>' +
+      '<td style="font-size:13px;white-space:nowrap">' + (f.clases ? (f.todo
+          ? '<span style="color:var(--color-accent);font-weight:700">Libre</span>'
+          : '<span style="opacity:.7">'+f.libres+' de '+f.clases+'</span>') : '—') + '</td>';
+    fechas.forEach(function(d){
+      var c = f.celdas[d];
+      if(c.estado==='feriado' || c.estado==='sinclase'){
+        g += '<td style="font-size:12px;opacity:.4">—</td>';
+      } else if(c.estado==='libre'){
+        g += '<td style="font-size:13px;color:var(--color-accent);font-weight:600">'+(compacto?'✓':'libre')+'</td>';
+      } else if(c.estado==='reservada'){
+        g += '<td style="font-size:12px;opacity:.6" title="'+esc(c.motivo)+'">'+(compacto?'R':'reservada')+'</td>';
       } else {
-        g += '<td style="font-size:12px;opacity:.75">' +
-             c.slice(0,3).map(function(p){ return esc(p.seccion)+' '+esc(p.ini)+'-'+esc(p.fin); }).join('<br>') +
-             (c.length>3 ? '<br>+'+(c.length-3) : '') + '</td>';
+        var det = c.choques.map(function(p){ return p.seccion+' '+p.ini+'-'+p.fin; });
+        g += compacto
+          ? '<td style="font-size:12px;opacity:.6" title="'+esc(det.join(' · '))+'">×</td>'
+          : '<td style="font-size:12px;opacity:.75">' + det.slice(0,3).map(esc).join('<br>') + (det.length>3 ? '<br>+'+(det.length-3) : '') + '</td>';
       }
     });
     g += '</tr>';
@@ -3387,10 +3661,12 @@ function vDisponibilidad(){
     '<button class="btn btn-secondary" id="dpCsv">Descargar este cuadro (CSV)</button>' +
     '<button class="btn btn-secondary" id="dpTsv">Copiar para Google Sheets</button></div>';
   g += '<p style="font-size:12.5px;opacity:.6;margin:10px 0 0">Una celda dice «libre» solo si el ambiente no tiene ' +
-       'nada entre '+esc(fr.ini)+' y '+esc(fr.fin)+' ese día. Un ambiente bloqueado en el catálogo sale atenuado aunque no tenga dictados.</p>';
+       'nada entre '+esc(fr.ini)+' y '+esc(fr.fin)+' esa fecha. «Todo el rango» cuenta solo días de clase: feriados y domingos no entran. ' +
+       (compacto ? 'Con muchas fechas el cuadro se compacta: ✓ libre, × ocupado (pasa el cursor para ver quién), R reservada en el catálogo.' : '') + '</p>';
 
   el('vista').innerHTML = g;
 
+  calRangoBind('dpCal', function(){ render(); });
   el('dpFranja').onchange = function(){
     S.dpFranja = this.value;
     if(this.value !== 'Personalizada'){ var x = franjaActual(); S.dpIni = x.ini; S.dpFin = x.fin; }
@@ -3399,10 +3675,9 @@ function vDisponibilidad(){
   ['dpIni','dpFin'].forEach(function(id){
     el(id).onchange = function(){ S.dpFranja = 'Personalizada'; S.dpIni = el('dpIni').value; S.dpFin = el('dpFin').value; render(); };
   });
-  el('dpRef').onchange = function(){ S.dpRef = this.value; render(); };
   el('dpTipo').onchange = function(){ S.dpTipo = this.value; render(); };
   el('dpAforo').oninput = function(){ S.dpAforo = this.value; render(); };
-  el('dpCsv').onclick = function(){ csv(matrizDisponibilidadTabla(), 'disponibilidad-'+fr.t.toLowerCase()+'.csv'); };
+  el('dpCsv').onclick = function(){ csv(matrizDisponibilidadTabla(), 'disponibilidad-'+S.dpCal.desde+'_'+S.dpCal.hasta+'.csv'); };
   el('dpTsv').onclick = function(){ copiarTsv(matrizDisponibilidadTabla(), el('dpTsv')); };
 }
 
@@ -3413,14 +3688,17 @@ function tiposAmbiente(){
 }
 
 function matrizDisponibilidadTabla(){
-  var fr = franjaActual();
-  var out = [['Ambiente','Tipo','Aforo','Franja','Vigente al'].concat(DIAS)];
+  var fr = franjaActual(), fechas = fechasDisponibilidad();
+  var out = [['Ambiente','Tipo','Aforo','Franja','Todo el rango'].concat(fechas.map(function(f){ return DIAS[idxDia(f)].slice(0,3)+' '+f; }))];
   matrizDisponibilidad().forEach(function(f){
-    out.push([f.aula, f.tipo, f.aforo, fr.ini+'-'+fr.fin, (S.dpRef||hoyIso())].concat(
-      DIAS.map(function(d){
-        if(f.bloqueada && !f.dias[d].length) return 'BLOQUEADA: ' + f.bloqueada;
-        if(!f.dias[d].length) return 'LIBRE';
-        return f.dias[d].map(function(p){ return p.seccion+' '+p.ini+'-'+p.fin; }).join(' · ');
+    out.push([f.aula, f.tipo, f.aforo, fr.ini+'-'+fr.fin, f.todo ? 'LIBRE' : f.libres+' de '+f.clases].concat(
+      fechas.map(function(d){
+        var c = f.celdas[d];
+        if(c.estado==='feriado') return 'FERIADO';
+        if(c.estado==='sinclase') return 'SIN CLASES';
+        if(c.estado==='reservada') return 'RESERVADA: ' + c.motivo;
+        if(c.estado==='libre') return 'LIBRE';
+        return c.choques.map(function(p){ return p.seccion+' '+p.ini+'-'+p.fin; }).join(' · ');
       })));
   });
   return out;

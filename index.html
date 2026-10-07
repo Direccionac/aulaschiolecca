@@ -1558,12 +1558,19 @@ function resumenCambio(p, n){
            : (n.hasta>=CICLO.fin ? ' (desde el '+corta(n.desde)+' hasta fin de ciclo, '+n.nClases+' clases)'
                                  : ' ('+n.nClases+' clases, '+corta(n.desde)+' → '+corta(n.hasta)+')');
   }
-  return p.seccion + ' — ' + (partes.length ? partes.join(' · ') : 'sin variación') + cuando;
+  return p.seccion + ' ' + p.dia.slice(0,3).toLowerCase() + ' ' + p.horario + ' — ' + (partes.length ? partes.join(' · ') : 'sin variación') + cuando;
 }
 function proponer(c){
   if(S.enviandoCambio) return;                    // un segundo clic no duplica el registro
+  /* Idéntico = mismo bloque (did) con la misma acción, destino y fechas. Los
+     eventos nuevos no tienen bloque previo: ahí se comparan sus datos. */
+  function firma(x){
+    var nuevo = !x.did || String(x.did).indexOf('nuevo-')===0;
+    return [x.accion, nuevo ? (x.resumen||'') : x.did, x.aula||'', x.dia||'', x.ini||'', x.fin||'', x.desde||'', x.hasta||''].join('|');
+  }
+  var fc = firma(c);
   var igual = (S.cambios||[]).filter(function(x){
-    return (x.estado==='pendiente' || x.estado==='aprobado') && x.accion===c.accion && x.resumen && x.resumen===c.resumen;
+    return (x.estado==='pendiente' || x.estado==='aprobado') && x.accion===c.accion && firma(x)===fc;
   })[0];
   if(igual && !confirm('Ya hay un cambio idéntico ' + (igual.estado==='aprobado' ? 'aprobado' : 'pendiente') +
       (igual.ts ? ' (registrado el ' + corta(String(igual.ts).slice(0,10)) + ')' : '') + ':\n\n' + igual.resumen +

@@ -1079,7 +1079,7 @@ function disponibilidadAulas(p, dia, ini, fin, fechas){
       });
     });
   }
-  return lista.map(function(a){
+  var salida = lista.filter(function(a){ return a.aula!=='VIRTUAL'; }).map(function(a){
     var r = {aula:a.aula, estado:'libre', detalle:''};
     if(bloqueoAplica(a, iniM, finM, fechas) && a.aula!==p.aula){
       r.estado='bloqueado'; r.detalle=a.bloqueada; return r;
@@ -1096,12 +1096,19 @@ function disponibilidadAulas(p, dia, ini, fin, fechas){
     }
     return r;
   });
+  /* Virtual no ocupa ambiente: siempre se puede elegir. */
+  salida.push({aula:'VIRTUAL', estado:'virtual', detalle:''});
+  return salida;
 }
 function opcionesAula(p, sel, dia, ini, fin, fechas){
   var est = disponibilidadAulas(p, dia, ini, fin, fechas);
-  var libres = [], resto = [];
+  var libres = [], resto = [], virt = '';
   est.forEach(function(e){
     var etq = e.aula;
+    if(e.estado==='virtual'){
+      virt = '<option value="VIRTUAL"'+(sel==='VIRTUAL'?' selected':'')+'>VIRTUAL — clase en línea, libera el ambiente</option>';
+      return;
+    }
     if(e.estado==='ocupado')        etq += ' — ocupado por ' + e.detalle;
     else if(e.estado==='bloqueado') etq += ' — ' + e.detalle;
     else if(e.estado==='aforo')     etq += ' — ' + e.detalle;
@@ -1112,13 +1119,14 @@ function opcionesAula(p, sel, dia, ini, fin, fechas){
   g += '<optgroup label="Libres en esas fechas y ese horario (' + libres.length + ')">' +
        (libres.length ? libres.join('') : '<option disabled>Ninguno: revisa el horario o el alcance</option>') +
        '</optgroup>';
+  if(virt) g += '<optgroup label="Sin ambiente físico">' + virt + '</optgroup>';
   if(resto.length) g += '<optgroup label="No disponibles (' + resto.length + ')">' + resto.join('') + '</optgroup>';
   return g;
 }
 
 /* ---------- ficha de un dictado + reprogramación ---------- */
 function abrirDictado(p){
-  var enCruce = idsEnCruce(activos())[p.id];
+  var enCruce = idsEnCruce(p.fechaRef ? activosEnFecha(p.fechaRef) : activos())[p.id];
   var aulas = D.aulas.map(function(a){return a.aula;});
   if(aulas.indexOf(p.aula)<0) aulas.unshift(p.aula);
   var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">'+esc(p.programa)+' · '+esc(p.tipo)+'</div>' +
@@ -1132,7 +1140,7 @@ function abrirDictado(p){
     fila('Grupo en Q10', p.grupo) +
     fila(p.esEvento ? 'Asistentes' : 'Alumnos', p.alumnos+' de '+p.aforo+' de aforo') +
     '</dl>';
-  if(enCruce) g += '<div class="aviso"><b>Cruce de ambiente sin resolver.</b> Otro dictado ocupa '+esc(p.aula)+' a la misma hora el '+esc(p.dia)+'.</div>';
+  if(enCruce) g += '<div class="aviso"><b>Cruce de ambiente sin resolver.</b> Otro dictado ocupa '+esc(p.aula)+' a la misma hora el '+esc(p.fechaRef ? larga(p.fechaRef) : p.dia)+'.</div>';
   if(sobreAforo(p)) g += '<div class="aviso"><b>Sobre aforo.</b> '+esc(p.alumnos)+(p.esEvento?' asistentes':' alumnos')+' en un ambiente de '+esc(p.aforo)+'.</div>';
   var vg = vigenciaDe(p);
   g += '<div class="aviso ok"><b>Vigencia.</b> ' +
@@ -1148,6 +1156,10 @@ function abrirDictado(p){
 
   g += '<div class="regla-fina" style="margin:22px 0 16px"></div>';
   g += '<div class="eyebrow" style="margin-bottom:10px">Reprogramar</div>';
+  if(p.aula !== 'VIRTUAL' && !p.esEvento){
+    g += '<button type="button" class="btn btn-secondary" id="rVirtual" style="margin-bottom:12px">Pasar a virtual</button>' +
+         '<span style="font-size:12.5px;opacity:.65;margin-left:10px">La clase se dicta en línea en las fechas que elijas abajo y '+esc(p.aula)+' queda libre.</span>';
+  }
   g += '<div class="rejilla-campos">';
   g += '<div class="field"><label>Ambiente</label><select class="input" id="rAula">' +
         opcionesAula(p, p.aula, p.dia, p.ini, p.fin, [p.fechaRef]) + '</select></div>';
@@ -1284,7 +1296,7 @@ function abrirDictado(p){
         if(o.id===p.id) return;
         if(!valida(min(o.ini),min(o.fin))) return;
         if(!(min(o.ini) < min(prop.fin) && min(prop.ini) < min(o.fin))) return;
-        if(o.aula===prop.aula){
+        if(o.aula===prop.aula && prop.aula!=='VIRTUAL'){
           var k = 'a'+o.id;
           if(!vistos[k]){ vistos[k]=1; msg.push('Choca con '+o.seccion+' ('+o.horario+') en '+prop.aula+', desde el '+corta(f)+'.'); }
         }
@@ -1301,12 +1313,22 @@ function abrirDictado(p){
       if(!isNaN(n) && !isNaN(af) && n>af) msg.push('El ambiente '+prop.aula+' tiene aforo '+af+' y la sección trae '+n+' alumnos.');
       if(bloqueoAplica(amb, min(prop.ini), min(prop.fin), r.fechas) && prop.aula!==p.aula) msg.push('El ambiente '+prop.aula+' está reservado: '+amb.bloqueada+'. No se programan clases ahí.');
     }
+    var okTxt = prop.aula==='VIRTUAL'
+      ? 'Pasa a virtual en '+(r.fechas.length===1 ? 'la clase del '+larga(r.fechas[0]) : 'las '+r.fechas.length+' clases del rango')+'. '+
+        (p.aula && p.aula!=='VIRTUAL' ? 'El '+p.aula+' queda libre en ese horario. ' : '')+'El docente no tiene otro dictado a esa hora.'
+      : 'Sin conflictos en las '+r.fechas.length+' clase'+(r.fechas.length===1?'':'s')+' del rango. El ambiente y el docente están libres.';
     caja.innerHTML = msg.length
       ? '<div class="aviso">'+msg.map(esc).join('<br>')+'</div>'
-      : '<div class="aviso ok">Sin conflictos en las '+r.fechas.length+' clase'+(r.fechas.length===1?'':'s')+' del rango. El ambiente y el docente están libres.</div>';
+      : '<div class="aviso ok">'+esc(okTxt)+'</div>';
     return prop;
   }
   ['rAula','rDia','rIni','rFin','rDesde','rHasta'].forEach(function(id){ el(id).onchange = validar; });
+  if(el('rVirtual')) el('rVirtual').onclick = function(){
+    el('rAula').value = 'VIRTUAL';
+    if(!el('rMotivo').value) el('rMotivo').value = 'Clase virtual a pedido';
+    validar();
+    el('rAula').scrollIntoView({block:'center', behavior:'smooth'});
+  };
   document.querySelectorAll('input[name="rAlc"]').forEach(function(r){
     r.onchange = function(){ mesCal = (el('rDesde').value||p.fechaRef).slice(0,7); validar(); };
   });
@@ -1527,7 +1549,7 @@ function abrirColocar(aula, dia, desde, hasta, dur, fDesde, fHasta){
 function fila(t,v){ return v ? '<dt>'+esc(t)+'</dt><dd>'+esc(v)+'</dd>' : ''; }
 function resumenCambio(p, n){
   var partes = [];
-  if(n.aula!==p.aula) partes.push(p.aula+' → '+n.aula);
+  if(n.aula!==p.aula) partes.push(n.aula==='VIRTUAL' ? 'pasa a virtual (libera '+p.aula+')' : p.aula+' → '+n.aula);
   if(n.dia!==p.dia)   partes.push(p.dia+' → '+n.dia);
   if(n.ini!==p.ini || n.fin!==p.fin) partes.push(p.horario+' → '+n.ini+'-'+n.fin);
   var cuando = '';
@@ -1539,10 +1561,19 @@ function resumenCambio(p, n){
   return p.seccion + ' — ' + (partes.length ? partes.join(' · ') : 'sin variación') + cuando;
 }
 function proponer(c){
+  if(S.enviandoCambio) return;                    // un segundo clic no duplica el registro
+  var igual = (S.cambios||[]).filter(function(x){
+    return (x.estado==='pendiente' || x.estado==='aprobado') && x.accion===c.accion && x.resumen && x.resumen===c.resumen;
+  })[0];
+  if(igual && !confirm('Ya hay un cambio idéntico ' + (igual.estado==='aprobado' ? 'aprobado' : 'pendiente') +
+      (igual.ts ? ' (registrado el ' + corta(String(igual.ts).slice(0,10)) + ')' : '') + ':\n\n' + igual.resumen +
+      '\n\n¿Registrar otro igual de todas formas?')) return;
+  S.enviandoCambio = true;
   c.cid = uid(); c.ts = new Date().toISOString(); c.estado='pendiente';
   if(!c.did) c.did = 'nuevo-'+c.cid;
   c.por = S.sesion ? S.sesion.nombre : '';
   enviar({accion:'proponer', cambio:c}, function(r){
+    S.enviandoCambio = false;
     if(r.ok){ cerrarPanel(); S.tab='cambios'; render(); }
     else alert('No se pudo registrar: ' + (r.error||'error desconocido'));
   });
@@ -1818,10 +1849,19 @@ function vGrilla(){
       }).join('') + '</div></div>';
 
     filasDe(x).forEach(function(a){
-      var bs = x.act.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); });
+      var bs = x.act.filter(function(p){ return p.aula===a.aula && valida(min(p.ini),min(p.fin)); })
+                    .sort(function(u,v){ return min(u.ini)-min(v.ini) || min(v.fin)-min(u.fin); });
+      /* Si dos bloques se pisan (un evento dentro de una clase, un cruce), cada
+         uno va en su propio carril: ninguno tapa al otro y los dos se pueden abrir. */
+      var finCarril = [], carril = {};
+      bs.forEach(function(p){
+        var k = 0; while(k < finCarril.length && finCarril[k] > min(p.ini)) k++;
+        finCarril[k] = min(p.fin); carril[p.id + '|' + p.ini] = k;
+      });
+      var nCar = Math.max(1, finCarril.length), altoCar = 56;
       g += '<div class="grid-fila" style="'+cols+'">';
       g += '<div class="grid-aula"'+(a.obs ? ' title="'+esc(a.obs)+'"' : '')+'>'+esc(a.aula)+'<small>'+esc(a.tipo==='Sin ambiente físico'?'sin ambiente':a.tipo)+'</small>'+(a.obs ? '<small style="text-transform:none;letter-spacing:0">'+esc(a.obs.length>28 ? a.obs.slice(0,26)+'…' : a.obs)+'</small>' : '')+'</div>';
-      g += '<div class="grid-pista"><div class="franjas">'+fondo+'</div>';
+      g += '<div class="grid-pista"'+(nCar>1 ? ' style="min-height:'+(nCar*altoCar+6)+'px"' : '')+'><div class="franjas">'+fondo+'</div>';
       bs.forEach(function(p){
         var izq = px(min(p.ini)), an = (min(p.fin)-min(p.ini))/span*100;
         if(izq >= 100 || izq + an <= 0) return;
@@ -1831,7 +1871,8 @@ function vGrilla(){
         var turnoCls = ' turno-' + (p.turno==='Mañana'?'m':(p.turno==='Tarde'?'t':'n'));
         var cls = 'bloque' + turnoCls + (x.cru[p.id]?' cruce':'') + (p.movido?' propuesto':'') + (p.esEvento?' evento':'');
         var apellido = (p.docente||'').split(' ').slice(0,2).join(' ');
-        g += '<button class="'+cls+'" data-k="'+k+'" style="left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
+        var vert = nCar>1 ? 'top:'+(5 + carril[p.id+'|'+p.ini]*altoCar)+'px;bottom:auto;height:'+(altoCar-6)+'px;' : '';
+        g += '<button class="'+cls+'" data-k="'+k+'" style="'+vert+'left:'+izq.toFixed(3)+'%;width:'+an.toFixed(3)+'%">' +
              (x.cru[p.id]?'<span class="marca-ev">Cruce sin resolver</span>':'') +
              (p.esEvento?'<span class="marca-ev">'+esc(p.area||'Evento')+'</span>':'') +
              '<b>'+esc(p.esEvento ? (p.seccion||p.curso) : p.curso)+'</b>' +

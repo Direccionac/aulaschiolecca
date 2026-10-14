@@ -79,17 +79,31 @@ que valida el servidor.
 
 ---
 
-## Cómo funciona la aprobación
+## Cómo funciona la aprobación (versión 8: por excepción)
 
-0. Hay dos puntos de entrada: un bloque en la grilla, o una ventana libre en Aulas libres. Desde la ventana libre se puede además **crear un evento** que no existe en la programación (charla, examen, reunión). Un evento aprobado ocupa el ambiente igual que una clase: entra en los cruces, en las horas de uso y se puede reubicar o dar de baja.
-1. Un editor abre un bloque en la grilla, cambia ambiente, día u hora, y escribe el motivo.
-2. Antes de enviar, la ficha valida en vivo: ambiente ocupado, docente ya dictando a esa hora, aforo
-   insuficiente. **Avisa, no bloquea.**
-3. La propuesta llega a la hoja de Google con estado `pendiente`.
-4. Quien tenga la `CLAVE_ADMIN` la aprueba o la rechaza desde la pestaña Cambios.
-5. Al aprobarla, el cambio se aplica sobre la programación base y todas las vistas se recalculan:
-   cruces, aulas libres, carga docente.
-6. Todo queda en la hoja con autor, fecha, motivo y quién resolvió.
+1. Los editores crean y editan dictados en **Horarios**, reprograman desde la grilla y crean eventos desde Aulas libres.
+2. El servidor (`Codigo.gs`) revisa cada cambio. Se aplica solo si: el ambiente existe, no está bloqueado en esas
+   fechas y el grupo cabe; no choca con nada en el ambiente; el docente no dicta en otro lado a esa hora; no cambia
+   la duración de la clase; no es un dictado nuevo, un cambio de docente, de vigencia, de alumnos ni una baja; y, si
+   es carrera o GT15, no dura más de `DIAS_PERMANENTE` días (28 por defecto).
+3. Lo que falla alguna prueba queda **pendiente** con el motivo escrito, y llega el correo de siempre.
+4. Lo que se aplicó solo queda marcado como **aplicado solo** en Cambios y llega en el **resumen diario** (18:00).
+   Dirección Académica lo puede **revertir** desde Cambios.
+5. Lo que mueve carga docente se cruza con el padrón del tablero de Gestión Docente: si el nombre no está, lo avisa.
+6. Lo que registra Dirección Académica ya entra aprobado.
+
+Claves en Propiedades del script: `CLAVE_ADMIN`, `CLAVE_EDITOR` (compartida) y claves personales
+`CLAVE_<USUARIO>` (lo que va antes de la @, en mayúsculas: `CLAVE_PLOPINTA`, `CLAVE_MVILCA`). Quien tiene clave
+personal ya no puede entrar con la compartida.
+
+### Importar una campaña del Plan de inicio
+
+En Horarios → «Importar campaña del Plan de inicio». Fuente: el CSV de la pestaña «Plan inicio AAAA», filas pegadas, o
+directo de la hoja si en Propiedades del script está `PLAN_INICIO_URL` (y opcional `PLAN_PESTANA`; sin ella toma la
+pestaña «Plan inicio» del año más alto). Solo se leen columnas de programación; precios y metas monetarias no entran.
+Sin fecha de término, se calcula con las sesiones (o las horas) sin feriados ni el receso `RECESOS` del `index.html`
+(21-12 al 03-01). El docente se empareja con el padrón de Gestión Docente y el ambiente se sugiere libre en todo el
+periodo. Dirección Académica crea directo; un editor deja un lote pendiente que se aprueba con «Aprobar el lote».
 
 La plataforma sincroniza cada 15 segundos.
 

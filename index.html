@@ -208,6 +208,7 @@ p.entrada{font-size:14px;opacity:.72;max-width:66ch;margin:8px 0 24px}
 .panel{position:fixed;top:0;right:0;height:100%;width:min(460px,94vw);background:var(--color-bg);
   box-shadow:var(--shadow-lg);transform:translateX(100%);transition:transform .22s ease;z-index:51;overflow-y:auto;padding:0 0 60px}
 .panel.on{transform:translateX(0)}
+.panel.ancho{width:min(1320px,98vw)}
 .panel-cab{background:var(--color-text);color:var(--color-bg);padding:18px 24px}
 .panel-cuerpo{padding:22px 24px}
 .panel dl{display:grid;grid-template-columns:120px 1fr;gap:7px 12px;font-size:14px;margin-bottom:20px}
@@ -334,7 +335,9 @@ var EDITORES = [
   {correo:"gpacheco@chio-lecca.edu.pe",            nombre:"Giuseppe Pacheco",      rol:"admin"},
   {correo:"lmarinc@chio-lecca.edu.pe",             nombre:"Leslie Marín",         rol:"editor"},
   {correo:"orientacionalalumno@chio-lecca.edu.pe", nombre:"Orientación al Alumno", rol:"editor"},
-  {correo:"cproductosacademicos@chio-lecca.edu.pe", nombre:"Annie — Productos Académicos", rol:"editor"}
+  {correo:"cproductosacademicos@chio-lecca.edu.pe", nombre:"Annie — Productos Académicos", rol:"editor"},
+  {correo:"plopinta@chio-lecca.edu.pe",             nombre:"Paola — Supervisora de Atención al Estudiante", rol:"editor"},
+  {correo:"mvilca@chio-lecca.edu.pe",               nombre:"Muriel — Atención al Estudiante", rol:"editor"}
 ];
 
 /* Áreas que pueden solicitar un ambiente. Edita la lista si cambia el organigrama. */
@@ -901,6 +904,7 @@ function enviar(payload, cb){
   if(!S.sesion){ cb({ok:false,error:'Primero identifícate.'}); return; }
   payload.correo = S.sesion.correo;
   payload.clave  = S.sesion.clave;
+  payload.nombre = S.sesion.nombre || '';
   /* Si Google no contesta en 90 segundos se corta la espera: el botón no puede
      quedarse colgado para siempre. Quien llama decide qué hacer (el editor de
      Horarios relee la base para ver si igual se guardó). */
@@ -1002,6 +1006,7 @@ var panel = el('panel'), velo = el('velo'), foco = null;
 function abrirPanel(html){
   foco = document.activeElement;
   panel.innerHTML = html;
+  panel.classList.remove('ancho');
   panel.classList.add('on'); velo.classList.add('on'); panel.focus();
 }
 function cerrarPanel(){ panel.classList.remove('on'); velo.classList.remove('on'); if(foco) foco.focus(); }
@@ -1577,15 +1582,25 @@ function proponer(c){
       '\n\n¿Registrar otro igual de todas formas?')) return;
   S.enviandoCambio = true;
   c.cid = uid(); c.ts = new Date().toISOString(); c.estado='pendiente';
+  if(igual) c.confirmaDuplicado = true;            // ya lo confirmó arriba
   if(!c.did) c.did = 'nuevo-'+c.cid;
   c.por = S.sesion ? S.sesion.nombre : '';
   enviar({accion:'proponer', cambio:c}, function(r){
     S.enviandoCambio = false;
-    if(r.ok){ cerrarPanel(); S.tab='cambios'; render(); }
+    if(r.ok){
+      cerrarPanel(); S.tab='cambios'; render();
+      /* El servidor decide: lo que pasa todas las revisiones se aplica
+         en el acto; lo demás espera a Dirección Académica. */
+      if(r.estadoNuevo === 'pendiente')
+        alert('Registrado. Queda pendiente de Dirección Académica porque:\n\n' + (r.razon || 'necesita su revisión.'));
+      else if(r.estadoNuevo === 'aprobado' && !soyAdmin())
+        alert('Listo: el cambio ya está aplicado. Pasó todas las revisiones y Dirección Académica lo verá en su resumen del día.');
+    }
     else alert('No se pudo registrar: ' + (r.error||'error desconocido'));
   });
 }
 function resolver(cid, estado){
+  if(estado === 'revertido' && !confirm('¿Revertir este cambio? La programación vuelve a como estaba antes y se le avisa por correo a quien lo hizo.')) return;
   enviar({accion:'resolver', cid:cid, estado:estado}, function(r){
     if(!r.ok) alert('No se pudo resolver: ' + (r.error||'error desconocido'));
   });
@@ -2441,17 +2456,32 @@ function vCambios(){
     .sort(function(a,b){ return (b.tsResuelto||b.ts||'').localeCompare(a.tsResuelto||a.ts||''); });
   var esAdmin = S.sesion && S.sesion.rol==='admin';
   var g = '<h2 class="titulo">Cambios</h2>' +
-    '<p class="entrada">Cualquier editor propone; el administrador aprueba. Un cambio aprobado se aplica de inmediato a la programación vigente de todas las pestañas. Todo queda con autor, fecha y motivo.</p>';
+    '<p class="entrada">Aprobación por excepción: lo que pasa todas las revisiones del servidor (ambiente libre, docente sin cruce, aforo, bloqueos, sin tocar la carga docente ni el horario madre) se aplica solo y queda marcado como <strong>aplicado solo</strong>. Lo demás espera aquí, con el motivo por el que no se aplicó. Dirección Académica puede revertir cualquier cambio. Todo queda con autor, fecha y motivo.</p>';
 
+  function vigCelda(c){
+    if(String(c.accion||'').indexOf('base-')===0) return '<span class="tag tag-neutral">en la base</span>';
+    return '<span class="tag '+(c.desde&&c.desde===c.hasta?'tag-neutral':'tag-accent')+'" title="'+esc(tituloAlcance(c))+'">'+esc(textoAlcance(c))+'</span>';
+  }
   g += '<h3 style="font-size:20px;margin-bottom:10px">Pendientes de aprobación <span class="tag '+(pend.length?'tag-accent-2':'tag-neutral')+'">'+pend.length+'</span></h3>';
+  /* Importaciones del Plan de inicio: se aprueban juntas. */
+  var lotes = {};
+  pend.forEach(function(c){ if(String(c.motivo||'').indexOf('Importación · ') === 0) (lotes[c.motivo] = lotes[c.motivo] || []).push(c); });
+  Object.keys(lotes).forEach(function(m){
+    var l = lotes[m];
+    g += '<div class="aviso ok" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:260px"><b>' + esc(m.replace('Importación · ','Lote del ')) + '</b>: ' +
+         l.length + ' bloque(s) nuevos de ' + esc(l[0].por || '') + '. Revisa abajo el motivo de cada uno.</div>' +
+         (esAdmin ? '<button class="btn btn-primary btn-chico" data-lote-ap="'+esc(m)+'">Aprobar el lote ('+l.length+')</button>' +
+                    '<button class="btn btn-danger btn-chico" data-lote-rz="'+esc(m)+'">Rechazar el lote</button>' : '') + '</div>';
+  });
   if(!pend.length){
     g += '<p style="font-size:14px;opacity:.7;margin-bottom:34px">No hay propuestas esperando.</p>';
   } else {
     g += '<table class="table" style="margin-bottom:34px"><thead><tr><th>Cuándo</th><th>Quién</th><th>Cambio</th><th>Vigencia</th><th>Motivo</th><th></th></tr></thead><tbody>';
     pend.forEach(function(c){
       g += '<tr><td style="font-size:13px">'+esc(fecha(c.ts))+'</td><td>'+esc(c.por||'—')+'</td>' +
-        '<td>'+esc(c.resumen||'')+'</td>' +
-        '<td style="font-size:13px"><span class="tag '+(c.desde&&c.desde===c.hasta?'tag-neutral':'tag-accent')+'" title="'+esc(tituloAlcance(c))+'">'+esc(textoAlcance(c))+'</span></td>' +
+        '<td>'+esc(c.resumen||'') +
+          (c.razon ? '<div style="font-size:12.5px;margin-top:4px;color:var(--color-accent-2,#d6006c)">Por qué espera: '+esc(c.razon)+'</div>' : '') + '</td>' +
+        '<td style="font-size:13px">'+vigCelda(c)+'</td>' +
         '<td style="font-size:13px;opacity:.75">'+esc(c.motivo||'')+'</td>' +
         '<td style="white-space:nowrap">' + (esAdmin
           ? '<button class="btn btn-primary" data-ap="'+esc(c.cid)+'">Aprobar</button> <button class="btn btn-danger" data-rz="'+esc(c.cid)+'">Rechazar</button>'
@@ -2505,19 +2535,40 @@ function vCambios(){
 
   g += '<h3 style="font-size:20px;margin-bottom:10px">Historial</h3>';
   g += hist.length
-    ? '<table class="table"><thead><tr><th>Cuándo</th><th>Quién</th><th>Cambio</th><th>Vigencia</th><th>Motivo</th><th>Estado</th></tr></thead><tbody>' +
+    ? '<table class="table"><thead><tr><th>Cuándo</th><th>Quién</th><th>Cambio</th><th>Vigencia</th><th>Motivo</th><th>Estado</th>' + (esAdmin ? '<th></th>' : '') + '</tr></thead><tbody>' +
       hist.map(function(c){
+        var solo = c.nivel === 'auto';
+        var etiqueta = c.estado === 'aprobado' ? (solo ? 'aplicado solo' : 'aprobado') : c.estado;
         return '<tr><td style="font-size:13px">'+esc(fecha(c.tsResuelto||c.ts))+'</td><td>'+esc(c.por||'—')+'</td>' +
           '<td>'+esc(c.resumen||'')+'</td>' +
-          '<td style="font-size:13px"><span class="tag '+(c.desde&&c.desde===c.hasta?'tag-neutral':'tag-accent')+'" title="'+esc(tituloAlcance(c))+'">'+esc(textoAlcance(c))+'</span></td>' +
+          '<td style="font-size:13px">'+vigCelda(c)+'</td>' +
           '<td style="font-size:13px;opacity:.75">'+esc(c.motivo||'')+'</td>' +
-          '<td><span class="tag '+(c.estado==='aprobado'?'tag-accent':'tag-neutral')+'">'+esc(c.estado)+'</span></td></tr>';
+          '<td><span class="tag '+(c.estado==='aprobado'?'tag-accent':'tag-neutral')+'">'+esc(etiqueta)+'</span></td>' +
+          (esAdmin ? '<td style="white-space:nowrap">' + (c.estado==='aprobado' && solo
+                       ? '<button class="btn btn-secondary btn-chico" data-rv="'+esc(c.cid)+'">Revertir</button>' : '') + '</td>' : '') +
+          '</tr>';
       }).join('') + '</tbody></table>'
     : '<p style="font-size:14px;opacity:.7">Aún no se registran cambios.</p>';
 
   el('vista').innerHTML = g;
   document.querySelectorAll('[data-ap]').forEach(function(b){ b.onclick=function(){ resolver(b.dataset.ap,'aprobado'); }; });
   document.querySelectorAll('[data-rz]').forEach(function(b){ b.onclick=function(){ resolver(b.dataset.rz,'rechazado'); }; });
+  document.querySelectorAll('[data-rv]').forEach(function(b){ b.onclick=function(){ resolver(b.dataset.rv,'revertido'); }; });
+  function resolverLote(m, estado){
+    var l = pendientes().filter(function(c){ return c.motivo === m; });
+    if(!l.length || !confirm((estado==='aprobado' ? '¿Aprobar ' : '¿Rechazar ') + l.length + ' bloque(s) del lote?')) return;
+    var fallos = [];
+    (function sig(k){
+      if(k >= l.length){
+        enviar({accion:'aviso-lote', lote: m.replace('Importación · ',''), resuelto:true}, function(){});
+        alert((estado==='aprobado' ? 'Lote aprobado' : 'Lote rechazado') + (fallos.length ? '. No se pudo con:\n' + fallos.join('\n') : '.'));
+        return;
+      }
+      enviar({accion:'resolver', cid:l[k].cid, estado:estado}, function(r){ if(!r.ok) fallos.push(l[k].resumen + ': ' + r.error); sig(k+1); });
+    })(0);
+  }
+  document.querySelectorAll('[data-lote-ap]').forEach(function(b){ b.onclick=function(){ resolverLote(b.dataset.loteAp,'aprobado'); }; });
+  document.querySelectorAll('[data-lote-rz]').forEach(function(b){ b.onclick=function(){ resolverLote(b.dataset.loteRz,'rechazado'); }; });
 }
 function fecha(iso){
   if(!iso) return '';
@@ -2571,7 +2622,7 @@ function vDatos(){
   g += '<table class="table" style="margin-top:10px"><thead><tr><th>Correo</th><th>Rol</th><th>Puede</th></tr></thead><tbody>' +
     EDITORES.map(function(u){
       return '<tr><td>'+esc(u.correo)+'</td><td><span class="tag '+(u.rol==='admin'?'tag-accent':'tag-neutral')+'">'+esc(u.rol)+'</span></td>' +
-        '<td style="font-size:13px;opacity:.8">'+(u.rol==='admin'?'Proponer y aprobar':'Proponer cambios')+'</td></tr>';
+        '<td style="font-size:13px;opacity:.8">'+(u.rol==='admin'?'Todo, aprobar y revertir':'Crear y editar horarios; lo que tiene riesgo espera aprobación')+'</td></tr>';
     }).join('') + '</tbody></table>';
 
   el('vista').innerHTML = g;
@@ -2668,7 +2719,8 @@ function vGuia(){
     ['La semana que estás viendo','La barra bajo las pestañas fija la semana del ciclo. Todas las vistas se dibujan sobre esa semana: un cambio que empieza el 21 de setiembre no aparece si estás mirando la semana del 14, y un PEC que ya terminó deja su aula libre.'],
     ['Feriados','No se dicta en feriado de calendario y esas fechas no se cuentan. Si una clase cae en feriado, ese contenido se resume en la semana previa o la siguiente. El conteo de cualquier cambio ya los descuenta y la barra de semana los avisa.'],
     ['Calendario del ciclo','El ciclo va del 24 de agosto al 12 de diciembre de 2026, dieciséis semanas. La semana 17 es de sustentaciones: solo el 15 y el 16 de diciembre hay clase, y únicamente para los cursos que no la tuvieron en la semana de evaluación.'],
-    ['Propuesta y aprobación','Los editores proponen y el administrador aprueba en la pestaña Cambios. Recién al aprobar se aplica a todas las vistas.'],
+    ['Aprobación por excepción','Los editores crean, editan y reprograman. El servidor revisa cada cambio: si el ambiente está libre, el docente no dicta a esa hora, el grupo cabe, no hay bloqueo y no se toca la carga docente ni el horario madre de carrera, se aplica en el acto. Si no, queda en la pestaña Cambios con el motivo y Dirección Académica lo resuelve. Lo aplicado solo le llega en un resumen diario y lo puede revertir.'],
+    ['Importar una campaña','En Horarios, «Importar campaña del Plan de inicio»: subes el CSV de la pestaña Plan inicio (o se trae directo de la hoja) y eliges la campaña. El portal arma cada dictado con días, horas, término calculado sin feriados ni receso, el docente del padrón y un ambiente libre. Revisas la tabla, corriges lo marcado y se crean de una vez. Si lo hace un editor, queda como un lote pendiente que Dirección Académica aprueba con un clic.'],
     ['Buscar un hueco','En Aulas libres indicas día, hora, duración y cuántos alumnos, y sale la lista de ambientes con la primera ventana continua disponible.'],
     ['Carga docente','Sirve para ver días partidos, saltos entre sedes de aula y sobrecargas antes de que el docente reclame.'],
     ['Exportar','La programación vigente y el historial salen en CSV con punto y coma, que Excel en español abre directo.'],
@@ -2782,6 +2834,9 @@ function pintarSemana(){
 var TIPOS_DICTADO = ['CARRERA','GT15','PEC','PI','TALLER','CURSO CORTO','FONDO EMPLEO','EVENTO'];
 
 function soyAdmin(){ return !!(S.sesion && S.sesion.rol === 'admin'); }
+/* Desde la versión 8 los editores también crean y editan en Horarios. El
+   servidor decide qué se aplica solo y qué espera a Dirección Académica. */
+function puedoEditar(){ return !!(S.sesion && (S.sesion.rol === 'admin' || S.sesion.rol === 'editor')); }
 
 function clavesDeBase(campo){
   var v = {};
@@ -2852,8 +2907,12 @@ function vHorarios(){
   var g = '<h2 class="titulo">Horarios</h2>';
   if(soyAdmin()){
     g += '<p class="entrada">Crea, edita y da de baja dictados directo en la base. Cada cambio queda en la bitácora de la hoja, con lo que decía antes y lo que dice ahora.</p>';
+  } else if(puedoEditar()){
+    g += '<p class="entrada">Crea y edita dictados. Si el ambiente está libre, el docente no dicta a esa hora, el grupo cabe y no cambia la carga docente, se aplica en el acto. ' +
+         'Un dictado nuevo, un cambio de docente, de vigencia o una baja, y cualquier cambio permanente en carrera o GT15, quedan pendientes de Dirección Académica. ' +
+         'Para mover una clase solo unas semanas, usa <strong>Reprogramar</strong> desde la grilla: con fechas se aplica solo.</p>';
   } else {
-    g += '<div class="aviso">Estás en modo lectura. Para cambiar algo, usa <strong>Reprogramar</strong> desde la grilla o los ambientes: queda como propuesta y Dirección Académica la resuelve.</div>';
+    g += '<div class="aviso">Estás en modo lectura. Identifícate arriba a la derecha para crear o editar horarios.</div>';
   }
 
   g += '<div class="barra-filtros">' +
@@ -2864,8 +2923,9 @@ function vHorarios(){
     '<div class="field"><label>'+(modo==='ambiente'?'Ambiente':'Sección')+'</label><select class="input" id="hzValor" style="width:210px">' +
       lista.map(function(v){ return '<option value="'+esc(v)+'"'+(v===valor?' selected':'')+'>'+esc(v)+'</option>'; }).join('') +
     '</select></div>' +
-    (soyAdmin() ? '<button class="btn btn-primary" id="hzNuevo" style="align-self:flex-end">Agregar dictado</button>' +
-      '<button class="btn btn-secondary" id="hzReserva" style="align-self:flex-end">Reservar ambiente varios días</button>' : '') +
+    (puedoEditar() ? '<button class="btn btn-primary" id="hzNuevo" style="align-self:flex-end">Agregar dictado</button>' +
+      '<button class="btn btn-secondary" id="hzReserva" style="align-self:flex-end">Reservar ambiente varios días</button>' +
+      '<button class="btn btn-secondary" id="hzImportar" style="align-self:flex-end">Importar campaña del Plan de inicio</button>' : '') +
     '</div>';
 
   var bl = bloquesDe(modo, valor);
@@ -2878,7 +2938,7 @@ function vHorarios(){
     g += '<h3 style="font-size:17px;margin:22px 0 6px">' + d +
          (dd.length ? '' : ' <span style="font-size:13px;font-weight:400;opacity:.5">— libre</span>') + '</h3>';
     if(dd.length){
-      g += '<div style="overflow-x:auto"><table class="table"><thead><tr>' + (soyAdmin() ? '<th></th>' : '') + '<th>Hora</th><th>' +
+      g += '<div style="overflow-x:auto"><table class="table"><thead><tr>' + (puedoEditar() ? '<th></th>' : '') + '<th>Hora</th><th>' +
            (modo==='ambiente' ? 'Sección' : 'Ambiente') +
            '</th><th>Curso</th><th>Docente</th><th>Alum.</th><th>Vigencia</th></tr></thead><tbody>';
       dd.forEach(function(p){
@@ -2886,7 +2946,7 @@ function vHorarios(){
         /* El botón Editar va en la primera columna: así se ve siempre, aunque
            la tabla sea más ancha que la pantalla. */
         g += '<tr'+(baja?' style="opacity:.5"':'')+'>' +
-          (soyAdmin() ? '<td style="white-space:nowrap"><button class="btn btn-secondary btn-chico" data-ed="'+esc(p.id)+'">Editar</button></td>' : '') +
+          (puedoEditar() ? '<td style="white-space:nowrap"><button class="btn btn-secondary btn-chico" data-ed="'+esc(p.id)+'">Editar</button></td>' : '') +
           '<td style="white-space:nowrap">'+esc(p.ini)+'–'+esc(p.fin)+'</td>' +
           '<td><strong>'+esc(modo==='ambiente' ? p.seccion : p.aula)+'</strong>' +
             (baja?' <span class="tag tag-neutral">de baja</span>':'') + notaCambios(p) + '</td>' +
@@ -2898,7 +2958,7 @@ function vHorarios(){
       });
       g += '</tbody></table></div>';
     }
-    if(soyAdmin()){
+    if(puedoEditar()){
       g += '<button class="btn btn-secondary btn-chico" data-nuevo="'+esc(d)+'" style="margin-top:6px">Agregar bloque el '+d.toLowerCase()+'</button>';
     }
   });
@@ -2910,9 +2970,10 @@ function vHorarios(){
     if((S.edModo||'seccion')==='ambiente') S.edAmb = this.value; else S.edSec = this.value;
     render();
   };
-  if(soyAdmin()){
+  if(puedoEditar()){
     el('hzNuevo').onclick = function(){ abrirEditor(null, {}); };
     el('hzReserva').onclick = abrirReserva;
+    el('hzImportar').onclick = abrirImportar;
     document.querySelectorAll('[data-ed]').forEach(function(b){
       b.onclick = function(){
         var p = D.prog.filter(function(x){ return String(x.id)===b.dataset.ed; })[0];
@@ -3424,7 +3485,7 @@ function abrirEditor(p, pre){
   function guardar(){
     var r = revisar();
     if(r.errores.length){ alert('Corrige primero: ' + r.errores.join(' ')); return; }
-    var dias = diasMarcados(), hechos = [], fallos = [], i = 0;
+    var dias = diasMarcados(), hechos = [], fallos = [], enRevision = [], i = 0;
     el('edGuardar').disabled = true;
 
     function siguiente(forzar){
@@ -3435,9 +3496,12 @@ function abrirEditor(p, pre){
       enviar({accion: esNuevo ? 'base-crear' : 'base-editar',
               id: esNuevo ? '' : v.id, dictado: o, forzar: !!forzar, resumen: resumen},
         function(res){
+          if(res.ok && res.pendiente){ enRevision.push(d + ': ' + (res.razon || 'necesita revisión')); hechos.push(d); i++; siguiente(false); return; }
           if(res.ok){ hechos.push(d); i++; siguiente(false); return; }
           if(res.cruce && res.cruce.length && !forzar){
-            if(confirm(d + ': ' + res.error + '\n\n¿Registrarlo igual como solape autorizado?')){ siguiente(true); return; }
+            var pregunta = soyAdmin() ? '¿Registrarlo igual como solape autorizado?'
+                                      : '¿Enviarlo igual a Dirección Académica para que autorice el solape?';
+            if(confirm(d + ': ' + res.error + '\n\n' + pregunta)){ siguiente(true); return; }
             fallos.push(d + ' (no se guardó por el cruce)'); i++; siguiente(false); return;
           }
           /* Google a veces responde con una página de error aunque el dictado
@@ -3460,7 +3524,10 @@ function abrirEditor(p, pre){
     function terminar(){
       el('edGuardar').disabled = false;
       el('edGuardar').textContent = esNuevo ? 'Crear el dictado' : 'Guardar los cambios';
-      if(!fallos.length){ cerrarPanel(); S.tab='horarios'; render(); return; }
+      var nota = enRevision.length
+        ? 'Quedó pendiente de Dirección Académica (se aplica cuando lo apruebe):\n\n' + enRevision.join('\n\n')
+        : (!soyAdmin() && hechos.length ? 'Listo: ya está aplicado en la programación.' : '');
+      if(!fallos.length){ cerrarPanel(); S.tab = enRevision.length ? 'cambios' : 'horarios'; render(); if(nota) alert(nota); return; }
       /* Lo guardado se quita del formulario para no duplicarlo al reintentar. */
       if(esNuevo) hechos.forEach(function(d){
         delete filas[d];
@@ -3482,7 +3549,7 @@ function abrirEditor(p, pre){
       enviar({accion:'base-baja', id: v.id, nota: nota,
               resumen: v.seccion + ' — baja del ' + v.dia + ' ' + v.horario + ' en ' + v.aula},
         function(res){
-          if(res.ok){ cerrarPanel(); render(); }
+          if(res.ok){ cerrarPanel(); render(); if(res.pendiente) alert('La baja quedó pendiente de Dirección Académica: ' + (res.razon || '')); }
           else alert('No se pudo dar de baja: ' + (res.error || 'error desconocido'));
         });
     };
@@ -3955,20 +4022,22 @@ function abrirReserva(){
     var forzar = false;
     if(r.choques.length){
       forzar = confirm('Hay ' + r.choques.length + ' día(s) con choque.\n\n' +
-        'Aceptar: se crean TODOS, y los que chocan quedan marcados como solape autorizado.\n' +
+        (soyAdmin() ? 'Aceptar: se crean TODOS, y los que chocan quedan marcados como solape autorizado.\n'
+                    : 'Aceptar: los días limpios se procesan y los que chocan van a Dirección Académica para que autorice el solape.\n') +
         'Cancelar: se crean solo los días limpios.');
     }
     var pendientes = forzar ? r.dias : r.dias.filter(function(d){ return !conChoque[d]; });
     if(!pendientes.length){ alert('No queda ningún día por crear.'); return; }
 
     el('rvCrear').disabled = true;
-    var hechos = [], fallos = [];
+    var hechos = [], fallos = [], enRevision = [];
     (function siguiente(i){
       if(i >= pendientes.length){
         el('rvCrear').disabled = false;
         cerrarPanel();
         alert('Reserva del ambiente ' + o.aula + ':\n' +
               hechos.length + ' bloque(s) creado(s)' + (hechos.length ? ' (' + hechos.join(', ') + ')' : '') +
+              (enRevision.length ? '\n' + enRevision.length + ' pendiente(s) de Dirección Académica: ' + enRevision.join(' · ') : '') +
               (fallos.length ? '\nNo se pudo con: ' + fallos.join(' · ') : ''));
         render();
         return;
@@ -3979,11 +4048,598 @@ function abrirReserva(){
       enviar({accion:'base-crear', id:'', dictado:dic, forzar: !!conChoque[d],
               resumen: o.seccion + ' — reserva de ' + o.aula + ' el ' + d + ' ' + o.ini + '-' + o.fin},
         function(res){
-          if(res.ok) hechos.push(d); else fallos.push(d + ' (' + (res.error || 'error') + ')');
+          if(res.ok && res.pendiente) enRevision.push(d + ' (' + (res.razon || 'revisión') + ')');
+          else if(res.ok) hechos.push(d); else fallos.push(d + ' (' + (res.error || 'error') + ')');
           siguiente(i + 1);
         });
     })(0);
   };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   IMPORTAR UNA CAMPAÑA DEL PLAN DE INICIO (versión 13)
+
+   Lee el Plan de inicio (CSV descargado, filas pegadas desde la hoja o
+   directo de Google si la sala tiene configurado PLAN_INICIO_URL) y
+   arma los dictados de una o varias campañas: días, horas, vigencia,
+   docente del padrón y un ambiente libre sugerido. Se revisa todo en
+   una tabla y se crean de una vez.
+   - Del plan solo se leen columnas de programación. Precios, inversión
+     y metas monetarias se ignoran: no entran al portal.
+   - Si no hay fecha de término, se calcula contando las sesiones en los
+     días de clase, sin feriados ni el receso de fin de año (RECESOS).
+   - Dirección Académica crea directo. Un editor deja los dictados
+     pendientes, en un solo lote, y le llega un solo correo.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Receso de fin de año de la oferta corta. Calza con los términos del
+   Plan de inicio 2026 (Escaparatismo 24-11 → 16-02, Stylist 25-11 → 17-02). */
+var RECESOS = [['2026-12-21','2027-01-03']];
+(function(){
+  var extra = {'2026-12-25':'Navidad','2027-01-01':'Año Nuevo','2027-03-25':'Jueves Santo',
+               '2027-03-26':'Viernes Santo','2027-05-01':'Día del Trabajo','2027-06-07':'Batalla de Arica',
+               '2027-06-29':'San Pedro y San Pablo','2027-07-23':'Día de la Fuerza Aérea',
+               '2027-07-28':'Fiestas Patrias','2027-07-29':'Fiestas Patrias'};
+  for(var k in extra) if(!FERIADOS[k]) FERIADOS[k] = extra[k];
+})();
+function enReceso(f){ return RECESOS.some(function(r){ return f >= r[0] && f <= r[1]; }); }
+
+var IMP_COLS = {campana:'CAMPAÑA', modalidad:'MODALIDAD', programa:'PROGRAMA', tipo:'TIPO DE PROGRAMA',
+  horas:'HORAS', sesiones:'SESIONES', frecuencia:'FRECUENCIA', inicio:'FECHA DE INICIO',
+  termino:'FECHA DE TERMINO', dias:'DÍAS', horario:'HORARIO', docente:'DOCENTE', grupos:'GRUPOS', meta:'META Q'};
+var IMP_DIAS = [['LUNES','Lunes'],['MARTES','Martes'],['MIERCOLES','Miércoles'],['JUEVES','Jueves'],
+                ['VIERNES','Viernes'],['SABADO','Sábado']];
+var IMP_MESES = {ENERO:1,FEBRERO:2,MARZO:3,ABRIL:4,MAYO:5,JUNIO:6,JULIO:7,AGOSTO:8,SETIEMBRE:9,SEPTIEMBRE:9,OCTUBRE:10,NOVIEMBRE:11,DICIEMBRE:12};
+
+function sinTildes(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase(); }
+
+/* CSV o TSV con comillas y saltos de línea dentro de las celdas. */
+function leerCsv(txt){
+  txt = String(txt||'').replace(/^\uFEFF/,'');
+  var primera = txt.split(/\r?\n/).slice(0,12).join('\n');
+  var sep = (primera.split('\t').length > primera.split(',').length) ? '\t' : (primera.split(';').length > primera.split(',').length ? ';' : ',');
+  var filas = [], fila = [], celda = '', q = false;
+  for(var i = 0; i < txt.length; i++){
+    var c = txt[i];
+    if(q){
+      if(c === '"'){ if(txt[i+1] === '"'){ celda += '"'; i++; } else q = false; }
+      else celda += c;
+    } else if(c === '"') q = true;
+    else if(c === sep){ fila.push(celda); celda = ''; }
+    else if(c === '\n' || c === '\r'){
+      if(c === '\r' && txt[i+1] === '\n') i++;
+      fila.push(celda); filas.push(fila); fila = []; celda = '';
+    } else celda += c;
+  }
+  if(celda !== '' || fila.length){ fila.push(celda); filas.push(fila); }
+  return filas;
+}
+
+/* ---- fechas y horas del plan ---- */
+function impFecha(txt, anio){
+  var s = sinTildes(txt).trim(), m;
+  if(!s) return '';
+  if((m = s.match(/(\d{4})-(\d{2})-(\d{2})/))) return m[0];
+  if((m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/))) return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
+  if((m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2})\b/))) return '20'+m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
+  if((m = s.match(/(\d{1,2})(?:\/\d{1,2})?\s*(?:DE\s+)?([A-Z]+)(?:\s+(?:DEL?\s+)?(\d{4}))?/)) && IMP_MESES[m[2]])
+    return (m[3] || anio) + '-' + ('0'+IMP_MESES[m[2]]).slice(-2) + '-' + ('0'+m[1]).slice(-2);
+  return '';
+}
+function impMin(h, q, suf){ h = +h; q = +(q||0); if(suf === 'P' && h < 12) h += 12; if(suf === 'A' && h === 12) h = 0; return h*60+q; }
+function impHora(n){ return ('0'+Math.floor(n/60)).slice(-2)+':'+('0'+(n%60)).slice(-2); }
+/* Las horas de un trozo de texto: el primer par que aparezca. */
+function impHoras(t){
+  var re = /(\d{1,2})(?:[:.](\d{2}))?\s*(A\.?\s?M\.?|P\.?\s?M\.?)?/g, m, toks = [];
+  t = sinTildes(t);
+  while((m = re.exec(t))){
+    if(m[2] === undefined && !m[3]) continue;
+    toks.push({h:+m[1], q:+(m[2]||0), suf: m[3] ? m[3].charAt(0) : ''});
+    if(toks.length === 2) break;
+  }
+  if(toks.length < 2) return null;
+  var a = toks[0], b = toks[1], ini, fin;
+  if(a.suf && b.suf){ ini = impMin(a.h,a.q,a.suf); fin = impMin(b.h,b.q,b.suf); }
+  else if(!a.suf && b.suf){ fin = impMin(b.h,b.q,b.suf); ini = impMin(a.h,a.q,b.suf); if(ini >= fin) ini = impMin(a.h,a.q,''); }
+  else if(a.suf && !b.suf){ ini = impMin(a.h,a.q,a.suf); fin = impMin(b.h,b.q,a.suf); if(fin <= ini) fin = impMin(b.h,b.q,'P'); }
+  else { ini = impMin(a.h,a.q,''); fin = impMin(b.h,b.q,''); if(a.h < 7){ ini += 720; fin += 720; } if(fin <= ini) fin += 720; }
+  if(!(fin > ini) || fin > 24*60) return null;
+  return {ini: impHora(ini), fin: impHora(fin)};
+}
+/* Días con su hora y su modalidad. «Martes (Presencial) Jueves (Virtual)
+   7:00 pm 9:15 pm», «Martes 7:00 pm / 9:15 pm Sábado 8:30 am / 10:45 am»… */
+function impDias(diasTxt, horarioTxt, modalidad){
+  var d = sinTildes(diasTxt), h = sinTildes(horarioTxt), aviso = [];
+  if(/\||\/\//.test(d + ' ' + h)) aviso.push('El plan trae dos grupos en una fila: se tomó el primero. Desagrégalo en el plan o completa el otro aquí.');
+  var grupo = d.split(/\||\/\//)[0];
+  var dias = IMP_DIAS.filter(function(x){ return grupo.indexOf(x[0]) >= 0; }).map(function(x){ return x[1]; });
+  if(!dias.length && /SABADO/.test(h)) dias = ['Sábado'];
+  var hgrupo = h.split(/\/\/|\|/)[0];
+  /* trozos del horario que empiezan con un día */
+  var marcas = [];
+  IMP_DIAS.forEach(function(x){ var i = hgrupo.indexOf(x[0]); while(i >= 0){ marcas.push({i:i, dia:x[1]}); i = hgrupo.indexOf(x[0], i+1); } });
+  marcas.sort(function(a,b){ return a.i-b.i; });
+  var porDia = {}, general = impHoras(hgrupo);
+  marcas.forEach(function(mk, k){
+    var trozo = hgrupo.slice(mk.i, k+1 < marcas.length ? marcas[k+1].i : hgrupo.length);
+    porDia[mk.dia] = {horas: impHoras(trozo), virtual: /VIRTUAL/.test(trozo), presencial: /PRESENCIAL/.test(trozo)};
+  });
+  var mod = sinTildes(modalidad);
+  var bloques = dias.map(function(dia){
+    var x = porDia[dia] || {}, hs = x.horas || general;
+    var virtual = x.virtual ? true : (x.presencial ? false : /^VIRTUAL/.test(mod));
+    return {dia:dia, ini: hs ? hs.ini : '', fin: hs ? hs.fin : '', virtual: virtual};
+  });
+  if(/SEMI/.test(mod) && !bloques.some(function(b){ return b.virtual; }))
+    aviso.push('Es semipresencial pero el horario no dice qué día es virtual: revisa la modalidad de cada día.');
+  return {bloques: bloques, avisos: aviso};
+}
+
+/* ---- docentes: el nombre del plan contra el padrón de Gestión ---- */
+function levenshtein(a, b){
+  var m = a.length, n = b.length, d = [], i, j;
+  for(i = 0; i <= m; i++){ d[i] = [i]; }
+  for(j = 1; j <= n; j++) d[0][j] = j;
+  for(i = 1; i <= m; i++) for(j = 1; j <= n; j++)
+    d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[m][n];
+}
+function tokParecido(a, b){
+  if(a === b) return true;
+  var tol = Math.min(a.length, b.length) >= 7 ? 2 : (Math.min(a.length, b.length) >= 4 ? 1 : 0);
+  return tol > 0 && levenshtein(a, b) <= tol;
+}
+function padronDocentes(){
+  var set = {};
+  (DOC_PADRON || []).forEach(function(n){ set[n] = 1; });
+  D.prog.forEach(function(p){ if(p.docente && p.activo !== 'NO') set[p.docente] = 1; });
+  return Object.keys(set);
+}
+/* Si el padrón de Gestión no cargó, no se marca a nadie como ausente. */
+function enPadron(n){ return !(DOC_PADRON && DOC_PADRON.length) || DOC_PADRON.indexOf(n) >= 0; }
+function emparejarDocente(nombre){
+  var r = emparejarEn(nombre, DOC_PADRON || []);
+  if(r && r.ok) return r;
+  var r2 = emparejarEn(nombre, padronDocentes());
+  return r2 || {nombre: String(nombre).trim(), ok:false};
+}
+/* Busca el nombre del plan en una lista «APELLIDOS Nombres»: tiene que
+   coincidir al menos un apellido, y gana quien coincide en más palabras. */
+function emparejarEn(nombre, lista){
+  var t = sinTildes(nombre).replace(/[^A-Z ]/g,' ').split(/\s+/).filter(function(w){ return w.length > 1; });
+  if(!t.length) return {nombre:'', ok:false};
+  var mejor = null, empate = false;
+  lista.forEach(function(cand){
+    var orig = String(cand).split(/\s+/);
+    var ape = orig.filter(function(w){ return w === w.toUpperCase() && /[A-ZÁÉÍÓÚÑ]/.test(w); }).map(sinTildes);
+    var todos = orig.map(sinTildes);
+    var puntos = 0, enApellido = false;
+    t.forEach(function(w){
+      if(todos.some(function(x){ return tokParecido(w, x); })) puntos++;
+      if(ape.some(function(x){ return tokParecido(w, x); })) enApellido = true;
+    });
+    if(!enApellido) return;
+    if(!mejor || puntos > mejor.puntos){ mejor = {nombre:cand, puntos:puntos}; empate = false; }
+    else if(puntos === mejor.puntos) empate = true;
+  });
+  if(mejor && (mejor.puntos >= 2 || (mejor.puntos === 1 && !empate && t.length <= 2)) && !(empate && mejor.puntos < 2))
+    return {nombre: mejor.nombre, ok: enPadron(mejor.nombre)};
+  return null;
+}
+function partirDocentes(txt){
+  var s = String(txt||'').trim();
+  if(!s || /^VARIOS/i.test(sinTildes(s))) return [];
+  return s.split(/\s*[\/,;]\s*|\s+-\s*|\s*-\s+|-(?=[A-ZÁÉÍÓÚ][a-záéíóú])|\s+y\s+/).map(function(x){ return x.trim(); }).filter(Boolean);
+}
+
+function impTipo(txt){
+  var s = sinTildes(txt);
+  if(/INTEGRAL/.test(s)) return 'PI';
+  if(/TALLER/.test(s)) return 'TALLER';
+  if(/CURSO/.test(s)) return 'CURSO CORTO';
+  return 'PEC';
+}
+function impTipoAmbiente(curso){
+  var s = sinTildes(curso);
+  if(/CLO|3D|DIGITAL|AUDACES|INTELIGENCIA|TECNOLOGIA|INFORMATICA/.test(s)) return 'Laboratorio';
+  if(/PATRONAJE|CONFECCION|SASTRER|LENCER|COSTURA|PRODUCCION|BOLSO|CALZADO|NOVIA|GALA|DEPORTIVA|MASCOTA|MARROQUIN/.test(s)) return 'Aula/Taller';
+  return 'Teórica';
+}
+
+/* Último día de clase: se cuentan las sesiones en los días del dictado,
+   sin feriados ni receso. Sin número de sesiones, se usan las horas. */
+function impTermino(c){
+  var dias = c.bloques.map(function(b){ return DIAS.indexOf(b.dia); }).filter(function(i){ return i >= 0; });
+  if(!c.inicio || !dias.length) return '';
+  var n = c.sesiones;
+  if(!n && c.horas){
+    var acad = c.bloques.reduce(function(s,b){ return s + (min(b.fin) - min(b.ini)) / 45; }, 0) / c.bloques.length;
+    if(acad > 0) n = Math.ceil(c.horas / acad);
+  }
+  if(!n) return '';
+  var f = c.inicio, k = 0, guard = 0;
+  while(guard++ < 800){
+    if(dias.indexOf(idxDia(f)) >= 0 && !esFeriado(f) && !enReceso(f)){ k++; if(k >= n) return f; }
+    f = masDias(f, 1);
+  }
+  return '';
+}
+
+/* ---- ocupación: la real más lo que ya se asignó en esta importación ---- */
+function impOcupacion(){ return OCUP.ocupaciones(D.prog, S.cambios || []); }
+function impBloqueo(amb, o){
+  if(!amb || !amb.bloqueada) return '';
+  var desde = o.vigDesde || hoyIso(), t = String(amb.bloqueada);
+  if(amb.bloqueoHasta && amb.bloqueoHasta < desde) return '';
+  if(amb.bloqueoTurnos) return String(amb.bloqueoTurnos).indexOf(turnoDe(min(o.ini))) >= 0 ? t : '';
+  var m = /hasta(?: el)?\s+(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/i.exec(t);
+  if(m && (m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2)) < desde) return '';
+  var f = /hasta\s+(?:el\s+)?fin(?:al(?:es)?)?\s+de\s+([a-záéíóú]+)(?:\s+(?:de\s+)?(\d{4}))?/i.exec(t);
+  if(f && IMP_MESES[sinTildes(f[1])]){
+    var y = +(f[2] || desde.slice(0,4)), mm = IMP_MESES[sinTildes(f[1])];
+    if(aIso(new Date(y, mm, 0, 12)) < desde) return '';
+  }
+  if(/ma[nñ]ana y tarde/i.test(t) && min(o.ini) >= 17*60+50) return '';
+  return t;
+}
+function impDocenteOcupado(o, lista){
+  var d = sinTildes(o.docente).trim(); if(!d) return [];
+  var porId = {}; D.prog.forEach(function(p){ porId[String(p.id)] = p; });
+  var a = min(o.ini), b = min(o.fin), r = [];
+  lista.forEach(function(q){
+    var doc = q.docente !== undefined ? q.docente : (porId[q.id] ? porId[q.id].docente : '');
+    if(sinTildes(doc).trim() !== d || q.dia !== o.dia) return;
+    if(!(min(q.ini) < b && a < min(q.fin))) return;
+    if(OCUP.fechaComun(o, q)) r.push(q.etiqueta);
+  });
+  return r;
+}
+function impProbarAula(aula, o, lista, alumnos){
+  if(aula === 'VIRTUAL') return {ok:true, motivo:''};
+  var amb = D.aulas.filter(function(a){ return a.aula === aula; })[0];
+  if(!amb) return {ok:false, motivo:'no está en el catálogo'};
+  var x = {}; for(var k in o) x[k] = o[k]; x.aula = aula; x.activo = 'SÍ';
+  var bl = impBloqueo(amb, x); if(bl) return {ok:false, motivo:'bloqueado'};
+  var ch = OCUP.crucesEn(x, lista, ''); if(ch.length) return {ok:false, motivo:'ocupado: ' + ch[0]};
+  var n = parseInt(alumnos,10), af = parseInt(amb.aforo,10), cap = parseInt(amb.capacidad,10);
+  if(!isNaN(n) && !isNaN(af) && n > af) return {ok: !isNaN(cap) && n <= cap, aforo:true, motivo:'sobre aforo (' + n + ' en ' + af + (cap ? ', capacidad ' + cap : '') + ')'};
+  return {ok:true, motivo:''};
+}
+function impSugerirAula(c, b, o, lista){
+  var pref = impTipoAmbiente(c.curso);
+  var cands = D.aulas.filter(function(a){ return a.aula !== 'VIRTUAL' && (!/POLIVALENTE/i.test(a.aula) || parseInt(c.alumnos,10) <= parseInt(a.aforo,10)); })
+    .map(function(a){ return a.aula; });
+  /* primero el tipo que pide el curso; dentro de cada grupo, las aulas
+     numeradas antes que los espacios del hall */
+  function rango(x){ return ((ambienteDe(x)||{}).tipo === pref ? 0 : 2) + (/^\d/.test(x) ? 0 : 1); }
+  cands.sort(function(x, y){ return rango(x) - rango(y) || String(x).localeCompare(String(y), 'es', {numeric:true}); });
+  /* primero el mismo ambiente que otro día del mismo dictado */
+  var otro = c.bloques.filter(function(z){ return z !== b && z.aula && z.aula !== 'VIRTUAL'; })[0];
+  if(otro) cands.unshift(otro.aula);
+  var limpio = null, conAforo = null;
+  for(var i = 0; i < cands.length; i++){
+    var r = impProbarAula(cands[i], o, lista, c.alumnos);
+    if(r.ok && !r.aforo){ limpio = cands[i]; break; }
+    if(r.ok && r.aforo && !conAforo) conAforo = cands[i];
+  }
+  return limpio || conAforo || '';
+}
+
+/* Arma el modelo desde las filas del plan. */
+function impDesdeFilas(filas){
+  var cab = -1;
+  for(var i = 0; i < filas.length; i++){
+    var u = filas[i].map(function(x){ return sinTildes(x).trim(); });
+    if(u.indexOf('CAMPANA') >= 0 && u.indexOf('PROGRAMA') >= 0){ cab = i; break; }
+  }
+  if(cab < 0) return {error:'No encontré la fila de encabezados (CAMPAÑA, PROGRAMA, …).'};
+  var hdr = filas[cab].map(function(x){ return sinTildes(x).trim(); }), col = {};
+  for(var k in IMP_COLS) col[k] = hdr.indexOf(sinTildes(IMP_COLS[k]));
+  var anios = {};
+  filas.forEach(function(f){ (f.join(' ').match(/\b20\d{2}\b/g) || []).forEach(function(y){ anios[y] = (anios[y]||0)+1; }); });
+  var anio = Object.keys(anios).sort(function(a,b){ return anios[b]-anios[a]; })[0] || String(new Date().getFullYear());
+  var cursos = [];
+  filas.slice(cab+1).forEach(function(f, j){
+    function v(k){ return col[k] >= 0 ? String(f[col[k]] || '').trim() : ''; }
+    var campana = v('campana'), programa = v('programa');
+    if(!programa || sinTildes(campana) === 'CAMPANA') return;
+    var c = {fila: cab + j + 2, campana: campana, curso: programa.replace(/\s+/g,' '), modalidad: v('modalidad'),
+             tipo: impTipo(v('tipo')), tipoTxt: v('tipo'), horas: parseFloat(v('horas')) || 0,
+             sesiones: /SESION/.test(sinTildes(v('sesiones'))) ? (parseInt((v('sesiones').match(/\d+/)||[])[0], 10) || 0) : 0,
+             inicioTxt: v('inicio'), terminoTxt: v('termino'), diasTxt: v('dias'), horarioTxt: v('horario'),
+             docenteTxt: v('docente'), alumnos: (v('meta').match(/\d+/)||[''])[0], avisos: [], incluir: true};
+    c.inicio = impFecha(c.inicioTxt, anio);
+    if(/\d{1,2}\/\d{1,2}\s+[A-Z]/i.test(sinTildes(c.inicioTxt))) c.avisos.push('El plan trae dos fechas de inicio (dos grupos): se tomó la primera.');
+    c.termino = impFecha(c.terminoTxt, anio); c.terminoCalculado = false;
+    if(c.termino && c.inicio && c.termino < c.inicio){
+      var corr = (+c.termino.slice(0,4)+1) + c.termino.slice(4);
+      if(corr >= c.inicio){ c.avisos.push('El término decía ' + c.terminoTxt + ', antes del inicio: se tomó el año siguiente.'); c.termino = corr; }
+    }
+    var dd = impDias(c.diasTxt, c.horarioTxt, c.modalidad);
+    c.bloques = dd.bloques; c.avisos = c.avisos.concat(dd.avisos);
+    var docs = partirDocentes(c.docenteTxt).map(emparejarDocente);
+    c.docentes = docs;
+    c.docente = docs.length ? docs[0].nombre : '';
+    if(docs.length > 1) c.avisos.push('El plan trae ' + docs.length + ' docentes (' + docs.map(function(x){ return x.nombre; }).join(', ') + '): se carga el primero y los demás quedan en la nota. Reparte la carga en Gestión Docente.');
+    if(/^VARIOS/i.test(sinTildes(c.docenteTxt))) c.avisos.push('El plan dice «Varios docentes»: asigna uno por grupo.');
+    cursos.push(c);
+  });
+  return {anio: anio, cursos: cursos};
+}
+
+/* Sección: como la del editor, pero con tres palabras del curso, y única
+   (dos talleres de «Patronaje y Confección…» no pueden compartir clave). */
+function claveCurso(curso){
+  var vacias = {DE:1,DEL:1,LA:1,EL:1,LOS:1,LAS:1,Y:1,E:1,EN:1,PARA:1,CON:1,A:1,AL:1,TALLER:1,CURSO:1,CORTO:1,PEC:1,PI:1,PROGRAMA:1};
+  return sinTildes(curso).replace(/[^A-Z0-9 ]/g,' ').split(/\s+/)
+    .filter(function(w){ return w && !vacias[w] && !/^20\d\d$/.test(w); });
+}
+function impSeccion(c, usadas){
+  var pre = PREFIJO_DE_TIPO[c.tipo] || 'PEC';
+  var MES = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SET','OCT','NOV','DIC'];
+  var base = pre + '-' + claveCurso(c.curso).slice(0,3).join('-') + (c.inicio ? '-' + MES[+c.inicio.slice(5,7)-1] + c.inicio.slice(2,4) : '');
+  var s = base, k = 2;
+  while(usadas[s] && usadas[s] !== c.claveCurso){ s = base + '-' + k++; }
+  usadas[s] = c.claveCurso;
+  return s;
+}
+
+/* Revisa cada dictado y asigna ambientes. Lo ya cargado en el portal se
+   detecta y queda desmarcado. */
+function impRevisar(){
+  var I = S.imp; if(!I) return;
+  var lista = impOcupacion().slice();
+  var usadas = {}, porCurso = {};
+  D.prog.forEach(function(p){
+    if(p.activo === 'NO') return;
+    var k = claveCurso(p.curso).join(' ');
+    usadas[p.seccion] = usadas[p.seccion] || k;
+    if(p.vigDesde) porCurso[k + '|' + p.vigDesde] = p;
+  });
+  I.cursos.forEach(function(c){
+    c.claveCurso = claveCurso(c.curso).join(' ');
+    c.estado = ''; c.problemas = [];
+    if(c.creado) { c.estado = 'creado'; return; }
+    if(!I.campanas[c.campana]) { c.estado = 'fuera'; return; }
+    c.seccion = c.seccionManual || impSeccion(c, usadas);
+    if(!c.inicio || !c.bloques.length || c.bloques.some(function(b){ return !b.ini || !b.fin; })){
+      c.estado = 'incompleto';
+      if(!c.inicio) c.problemas.push('Falta la fecha de inicio.');
+      if(!c.bloques.length) c.problemas.push('Faltan los días.');
+      if(c.bloques.some(function(b){ return !b.ini || !b.fin; })) c.problemas.push('Falta el horario de algún día.');
+    }
+    if(!c.terminoManual){
+      if(!c.termino || c.terminoCalculado){ c.termino = impTermino(c); c.terminoCalculado = !!c.termino; }
+    }
+    if(!c.termino && c.estado !== 'incompleto'){ c.estado = 'incompleto'; c.problemas.push('Falta el término y no se puede calcular (no hay sesiones ni horas).'); }
+    var ya = porCurso[c.claveCurso + '|' + c.inicio];
+    if(ya && !c.forzarDuplicado){ c.estado = c.estado || 'ya'; c.problemas.push('Ya está en el portal como ' + c.seccion + ' (' + ya.dia + ' ' + ya.ini + '-' + ya.fin + ', ' + ya.aula + ').'); if(c.incluirTocado !== true) c.incluir = false; }
+    if(!c.docente) c.problemas.push('Sin docente.');
+    else if(c.docentes.length && c.docente === c.docentes[0].nombre && !c.docentes[0].ok) c.problemas.push('«' + c.docente + '» no está en el padrón de Gestión Docente.');
+    if(c.estado === 'incompleto' || !c.incluir) return;
+    c.bloques.forEach(function(b){
+      b.problema = '';
+      var o = {dia:b.dia, ini:b.ini, fin:b.fin, vigDesde:c.inicio, vigHasta:c.termino, activo:'SÍ', docente:c.docente};
+      if(b.virtual){ b.aula = 'VIRTUAL'; }
+      else {
+        if(!b.aulaManual) b.aula = impSugerirAula(c, b, o, lista);
+        if(!b.aula){ b.problema = 'No hay ambiente libre a esa hora en todo el periodo: elige uno.'; }
+        else {
+          var r = impProbarAula(b.aula, o, lista, c.alumnos); if(!r.ok || r.aforo) b.problema = r.motivo;
+          var pref = impTipoAmbiente(c.curso), tipoAula = (ambienteDe(b.aula)||{}).tipo || '';
+          if(!b.aulaManual && tipoAula !== pref && !b.problema) b.problema = 'No hay ' + pref.toLowerCase() + ' libre: se sugiere el ' + b.aula + ' (' + tipoAula + '). Confírmalo o cámbialo.';
+        }
+      }
+      var dch = impDocenteOcupado(o, lista);
+      if(dch.length) b.problema = (b.problema ? b.problema + ' · ' : '') + 'el docente ya dicta: ' + dch[0];
+      /* lo asignado entra a la ocupación para los siguientes */
+      lista.push({id:'imp-'+c.fila+'-'+b.dia, etiqueta: c.seccion + ' (' + b.ini + '-' + b.fin + ', ' + c.curso + ') — de esta importación',
+                  aula: b.aula, dia: b.dia, ini: b.ini, fin: b.fin, docente: c.docente, vigDesde: c.inicio, vigHasta: c.termino, fechas:''});
+    });
+    c.sinAula = c.bloques.some(function(b){ return !b.virtual && !b.aula; });
+    if(c.sinAula) c.problemas.push('Elige el ambiente que falta para poder crearlo.');
+    if(c.bloques.some(function(b){ return b.problema; })) c.estado = 'revisar';
+    else c.estado = c.estado || 'listo';
+  });
+}
+
+function abrirImportar(){
+  var g = '<div class="panel-cab"><div class="eyebrow" style="opacity:.7">Programación</div>' +
+    '<h2 style="font-size:27px;margin-top:4px">Importar una campaña del Plan de inicio</h2>' +
+    '<p style="font-size:13px;opacity:.7;margin-top:6px">Arma los dictados con días, horas, vigencia, docente del padrón y un ambiente libre. Revisas todo aquí y se crean de una vez. Del plan solo se leen columnas de programación: precios y metas monetarias no entran.</p>' +
+    '</div><div class="panel-cuerpo" id="impCuerpo"></div>';
+  abrirPanel(g);
+  panel.classList.add('ancho');
+  pintarImportar();
+}
+
+function pintarImportar(){
+  var I = S.imp, g = '';
+  g += '<div class="barra-filtros">' +
+    '<div class="field"><label>Archivo del Plan de inicio (CSV)</label><input class="input" type="file" id="impArchivo" accept=".csv,.tsv,.txt"></div>' +
+    '<button class="btn btn-secondary" id="impGoogle" style="align-self:flex-end">Traer directo de la hoja de Google</button>' +
+    '</div>' +
+    '<details style="margin:-4px 0 14px"><summary style="font-size:13px;cursor:pointer;opacity:.75">O pega las filas copiadas de la hoja (con la fila de encabezados)</summary>' +
+    '<textarea class="input" id="impPegar" rows="4" style="margin-top:8px" placeholder="CAMPAÑA	MODALIDAD	PROGRAMA	…"></textarea>' +
+    '<button class="btn btn-secondary btn-chico" id="impLeerPegado" style="margin-top:6px">Leer lo pegado</button></details>';
+  if(I && I.msg) g += '<div class="aviso">' + esc(I.msg) + '</div>';
+  if(I && I.cursos){
+    var camps = {}; I.cursos.forEach(function(c){ camps[c.campana] = (camps[c.campana]||0) + 1; });
+    g += '<div class="field" style="margin-bottom:10px"><label>Campañas a cargar (' + esc(I.fuente) + ')</label><div class="seg" id="impCamps">' +
+      Object.keys(camps).map(function(k){
+        return '<label class="seg-opt"><input type="checkbox" value="'+esc(k)+'"'+(I.campanas[k]?' checked':'')+'><span>'+esc(k)+' · '+camps[k]+'</span></label>';
+      }).join('') + '</div></div>';
+    var vis = I.cursos.filter(function(c){ return I.campanas[c.campana]; });
+    var n = {listo:0, revisar:0, incompleto:0, ya:0, creado:0};
+    vis.forEach(function(c){ if(n[c.estado] !== undefined) n[c.estado]++; });
+    var aCrear = vis.filter(function(c){ return c.incluir && !c.sinAula && (c.estado === 'listo' || c.estado === 'revisar'); });
+    var bloques = aCrear.reduce(function(s,c){ return s + c.bloques.length; }, 0);
+    g += '<p style="font-size:13.5px;margin:4px 0 12px">' + vis.length + ' dictado(s): <strong>' + n.listo + ' listos</strong> · ' + n.revisar + ' por revisar · ' +
+         n.incompleto + ' incompletos · ' + n.ya + ' ya cargados' + (n.creado ? ' · ' + n.creado + ' creados en esta sesión' : '') + '.</p>';
+    g += '<div style="overflow-x:auto"><table class="table" style="font-size:13px"><thead><tr><th></th><th>Dictado</th><th>Docente</th><th>Alum.</th><th>Inicio → término</th><th>Días, horas y ambiente</th><th>Estado</th></tr></thead><tbody>';
+    vis.forEach(function(c){
+      var i = I.cursos.indexOf(c);
+      var bloqueado = c.estado === 'creado' || c.estado === 'incompleto';
+      var tag = {listo:['tag-accent','listo'], revisar:['tag-accent-2','revisar'], incompleto:['tag-neutral','incompleto'],
+                 ya:['tag-neutral','ya cargado'], creado:['tag-accent','creado']}[c.estado] || ['tag-neutral', c.estado];
+      g += '<tr style="vertical-align:top'+(c.incluir||c.estado==='creado'?'':';opacity:.55')+'">' +
+        '<td><input type="checkbox" data-imp-inc="'+i+'"'+(c.incluir?' checked':'')+(c.estado==='creado'?' disabled':'')+'></td>' +
+        '<td style="min-width:220px"><input class="input" data-imp-c="'+i+'" data-k="curso" value="'+esc(c.curso)+'" style="font-size:13px">' +
+          '<div style="display:flex;gap:6px;margin-top:4px"><select class="input" data-imp-c="'+i+'" data-k="tipo" style="font-size:12px;width:120px">' +
+          ['PEC','PI','TALLER','CURSO CORTO'].map(function(t){ return '<option'+(t===c.tipo?' selected':'')+'>'+t+'</option>'; }).join('') + '</select>' +
+          '<input class="input" data-imp-c="'+i+'" data-k="seccionManual" value="'+esc(c.seccion||'')+'" title="Sección" style="font-size:12px"></div>' +
+          '<div style="font-size:11.5px;opacity:.55;margin-top:3px">'+esc(c.campana)+' · fila '+c.fila+' · '+esc(c.modalidad)+'</div></td>' +
+        '<td style="min-width:190px"><input class="input" list="dlDocentes" data-imp-c="'+i+'" data-k="docente" value="'+esc(c.docente)+'" style="font-size:13px">' +
+          (c.docenteTxt && c.docente !== c.docenteTxt ? '<div style="font-size:11.5px;opacity:.55;margin-top:3px">plan: '+esc(c.docenteTxt)+'</div>' : '') + '</td>' +
+        '<td><input class="input" type="number" min="0" data-imp-c="'+i+'" data-k="alumnos" value="'+esc(c.alumnos)+'" style="font-size:13px;width:64px"></td>' +
+        '<td style="min-width:150px"><input class="input" type="date" data-imp-c="'+i+'" data-k="inicio" value="'+esc(c.inicio||'')+'" style="font-size:12.5px">' +
+          '<input class="input" type="date" data-imp-c="'+i+'" data-k="termino" value="'+esc(c.termino||'')+'" style="font-size:12.5px;margin-top:4px">' +
+          (c.terminoCalculado ? '<div style="font-size:11.5px;opacity:.6;margin-top:3px">término calculado: '+(c.sesiones||'')+(c.sesiones?' sesiones':'por horas')+'</div>' : '') + '</td>' +
+        '<td style="min-width:440px">' + c.bloques.map(function(b, j){
+          var opts = ['VIRTUAL'].concat(aulasDelCatalogo().filter(function(a){ return a !== 'VIRTUAL'; }));
+          return '<div style="display:flex;gap:5px;align-items:center;margin-bottom:4px;flex-wrap:wrap">' +
+            '<select class="input" data-imp-b="'+i+'.'+j+'" data-k="dia" style="font-size:12px;width:104px">' + DIAS.map(function(d){ return '<option'+(d===b.dia?' selected':'')+'>'+d+'</option>'; }).join('') + '</select>' +
+            '<input class="input" type="time" data-imp-b="'+i+'.'+j+'" data-k="ini" value="'+esc(b.ini)+'" style="font-size:12px;width:108px">' +
+            '<input class="input" type="time" data-imp-b="'+i+'.'+j+'" data-k="fin" value="'+esc(b.fin)+'" style="font-size:12px;width:108px">' +
+            '<select class="input" data-imp-b="'+i+'.'+j+'" data-k="aula" style="font-size:12px;width:120px"><option value="">— elegir —</option>' +
+              opts.map(function(a){ return '<option'+(a===b.aula?' selected':'')+'>'+esc(a)+'</option>'; }).join('') + '</select>' +
+            (b.problema ? '<div style="font-size:11.5px;color:var(--color-accent-2);width:100%">'+esc(b.problema)+'</div>' : '') + '</div>';
+        }).join('') +
+        (c.estado !== 'creado' ? '<button class="btn btn-secondary btn-chico" data-imp-mas="'+i+'" style="font-size:11.5px">+ día</button>' : '') + '</td>' +
+        '<td style="min-width:200px"><span class="tag '+tag[0]+'">'+esc(tag[1])+'</span>' +
+          c.problemas.concat(c.avisos).map(function(t){ return '<div style="font-size:11.5px;margin-top:4px;opacity:.85">'+esc(t)+'</div>'; }).join('') +
+          (c.estado==='ya' ? '<button class="btn btn-secondary btn-chico" data-imp-dup="'+i+'" style="margin-top:4px;font-size:11.5px">Es otro grupo: cargarlo igual</button>' : '') +
+          (c.resultado ? '<div style="font-size:11.5px;margin-top:4px">'+esc(c.resultado)+'</div>' : '') + '</td></tr>';
+    });
+    g += '</tbody></table></div>';
+    g += '<div class="barra-filtros" style="margin-top:16px;position:sticky;bottom:0;background:var(--color-bg);padding:10px 0">' +
+      '<button class="btn btn-primary" id="impCrear"'+(aCrear.length?'':' disabled')+'>' +
+        (soyAdmin() ? 'Crear ' : 'Enviar a Dirección Académica ') + aCrear.length + ' dictado(s) · ' + bloques + ' bloque(s)</button>' +
+      '<button class="btn btn-secondary" id="impCerrar">Cerrar</button></div>';
+    if(!soyAdmin()) g += '<p style="font-size:12.5px;opacity:.65">Como editor, los dictados nuevos quedan pendientes de Dirección Académica en un solo lote: le llega un correo y los aprueba juntos.</p>';
+  } else {
+    g += '<p style="font-size:13.5px;opacity:.75;max-width:70ch">Descarga la pestaña del Plan de inicio como CSV (Archivo → Descargar → CSV) y súbela, pega las filas, o tráela directo si la sala tiene configurada la hoja. Luego eliges la campaña.</p>' +
+         '<button class="btn btn-secondary" id="impCerrar">Cerrar</button>';
+  }
+  el('impCuerpo').innerHTML = g;
+  enlazarImportar();
+}
+
+function impCargarFilas(filas, fuente){
+  var r = impDesdeFilas(filas);
+  if(r.error){ S.imp = {msg: r.error}; pintarImportar(); return; }
+  var meses = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SETIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  S.imp = {cursos: r.cursos, anio: r.anio, fuente: fuente, campanas: {}, msg: ''};
+  /* Por defecto, las campañas que empiezan desde hoy y tienen algo que cargar. */
+  var hoy = hoyIso();
+  r.cursos.forEach(function(c){ if(c.inicio && c.inicio >= hoy) S.imp.campanas[c.campana] = true; });
+  impRevisar();
+  if(!r.cursos.length) S.imp.msg = 'El archivo no trae dictados debajo de los encabezados.';
+  pintarImportar();
+}
+
+function enlazarImportar(){
+  var I = S.imp;
+  el('impCerrar') && (el('impCerrar').onclick = cerrarPanel);
+  el('impArchivo').onchange = function(){
+    var f = this.files && this.files[0]; if(!f) return;
+    var rd = new FileReader();
+    rd.onload = function(){ impCargarFilas(leerCsv(rd.result), f.name); };
+    rd.readAsText(f, 'utf-8');
+  };
+  el('impLeerPegado').onclick = function(){ impCargarFilas(leerCsv(el('impPegar').value), 'filas pegadas'); };
+  el('impGoogle').onclick = function(){
+    var b = this; b.disabled = true; b.textContent = 'Leyendo la hoja…';
+    enviar({accion:'leer-plan'}, function(r){
+      b.disabled = false; b.textContent = 'Traer directo de la hoja de Google';
+      if(!r.ok){ alert('No se pudo leer la hoja: ' + (r.error || 'error')); return; }
+      impCargarFilas(r.filas, 'hoja «' + r.pestana + '»');
+    });
+  };
+  if(!I || !I.cursos) return;
+  document.querySelectorAll('#impCamps input').forEach(function(x){
+    x.onchange = function(){ I.campanas[x.value] = x.checked; impRevisar(); pintarImportar(); };
+  });
+  document.querySelectorAll('[data-imp-inc]').forEach(function(x){
+    x.onchange = function(){ var c = I.cursos[+x.dataset.impInc]; c.incluir = x.checked; c.incluirTocado = true; impRevisar(); pintarImportar(); };
+  });
+  document.querySelectorAll('[data-imp-c]').forEach(function(x){
+    x.onchange = function(){
+      var c = I.cursos[+x.dataset.impC], k = x.dataset.k, v = x.value.trim();
+      if(k === 'termino'){ c.termino = v; c.terminoManual = !!v; c.terminoCalculado = false; }
+      else if(k === 'inicio'){ c.inicio = v; if(!c.terminoManual && c.terminoCalculado) c.termino = ''; }
+      else if(k === 'seccionManual'){ c.seccionManual = v.toUpperCase(); }
+      else if(k === 'docente'){ c.docente = v; c.docentes = [{nombre:v, ok: enPadron(v)}].concat(c.docentes.slice(1)); }
+      else c[k] = v;
+      impRevisar(); pintarImportar();
+    };
+  });
+  document.querySelectorAll('[data-imp-b]').forEach(function(x){
+    x.onchange = function(){
+      var p = x.dataset.impB.split('.'), c = I.cursos[+p[0]], b = c.bloques[+p[1]], k = x.dataset.k;
+      if(k === 'aula'){ b.aula = x.value; b.aulaManual = !!x.value; b.virtual = x.value === 'VIRTUAL'; }
+      else if(k === 'ini' || k === 'fin') b[k] = normHora(x.value);
+      else b[k] = x.value;
+      impRevisar(); pintarImportar();
+    };
+  });
+  document.querySelectorAll('[data-imp-mas]').forEach(function(x){
+    x.onclick = function(){ var c = I.cursos[+x.dataset.impMas], u = c.bloques[c.bloques.length-1] || {};
+      c.bloques.push({dia:'Sábado', ini:u.ini||'', fin:u.fin||'', virtual:false}); impRevisar(); pintarImportar(); };
+  });
+  document.querySelectorAll('[data-imp-dup]').forEach(function(x){
+    x.onclick = function(){ var c = I.cursos[+x.dataset.impDup]; c.forzarDuplicado = true; c.incluir = true; c.incluirTocado = true;
+      impRevisar(); pintarImportar(); };
+  });
+  el('impCrear') && (el('impCrear').onclick = impCrear);
+}
+
+function impCrear(){
+  var I = S.imp;
+  var lote = 'Plan de inicio · ' + Object.keys(I.campanas).filter(function(k){ return I.campanas[k]; }).join(', ') + ' · ' + hoyIso();
+  var tareas = [];
+  I.cursos.forEach(function(c){
+    if(!I.campanas[c.campana] || !c.incluir || c.sinAula || (c.estado !== 'listo' && c.estado !== 'revisar')) return;
+    var grupo = 'CAMPAÑA ' + sinTildes(c.campana) + ' ' + (c.inicio || '').slice(0,4);
+    var otros = c.docentes.slice(1).map(function(x){ return x.nombre; });
+    var nota = 'Alta desde el Plan de inicio (' + I.fuente + ', campaña ' + c.campana + ') el ' + hoyIso() + ' por ' + (S.sesion ? S.sesion.nombre : '') + '.' +
+      ' Alumnos = meta Q del plan; actualizar con la matrícula de Q10.' +
+      (c.terminoCalculado ? ' Término calculado con ' + (c.sesiones ? c.sesiones + ' sesiones' : c.horas + ' horas') + ', sin feriados ni receso de fin de año.' : '') +
+      (otros.length ? ' Docentes del plan: ' + c.docentes.map(function(x){ return x.nombre; }).join(', ') + '.' : '');
+    c.bloques.forEach(function(b){
+      if(c.hechos && c.hechos[b.dia + b.ini]) return;
+      tareas.push({c:c, b:b, dictado:{dia:b.dia, aula:b.aula || 'POR DEFINIR', ini:b.ini, fin:b.fin, curso:c.curso, seccion:c.seccion,
+        docente:c.docente, tipo:c.tipo, programa:programaSugerido(c.tipo, c.seccion), grupo:grupo, alumnos:c.alumnos,
+        vigDesde:c.inicio, vigHasta:c.termino, activo:'SÍ', nota:nota}});
+    });
+  });
+  if(!tareas.length) return;
+  if(!confirm((soyAdmin() ? 'Se crearán ' : 'Se enviarán a Dirección Académica ') + tareas.length + ' bloque(s) de ' +
+      I.cursos.filter(function(c){ return tareas.some(function(t){ return t.c === c; }); }).length + ' dictado(s). ¿Seguir?')) return;
+  var b = el('impCrear'); b.disabled = true;
+  var ok = 0, pend = 0, fallos = [];
+  (function siguiente(k){
+    if(k >= tareas.length){
+      I.cursos.forEach(function(c){ if(c.hechos && c.bloques.every(function(x){ return c.hechos[x.dia + x.ini]; })) c.creado = true; });
+      impRevisar(); pintarImportar();
+      var fin = function(){
+        alert((ok ? ok + ' bloque(s) creado(s). ' : '') + (pend ? pend + ' bloque(s) pendiente(s) de Dirección Académica, en un solo lote. ' : '') +
+              (fallos.length ? '\n\nNo se pudo con:\n' + fallos.join('\n') + '\n\nCorrígelos en la tabla y vuelve a pulsar el botón: lo ya creado no se repite.' : ''));
+        render();
+      };
+      if(pend) enviar({accion:'aviso-lote', lote: lote}, function(){ fin(); }); else fin();
+      return;
+    }
+    var t = tareas[k];
+    b.textContent = 'Creando ' + (k+1) + ' de ' + tareas.length + '… no cierres';
+    enviar({accion:'base-crear', id:'', dictado:t.dictado, lote: lote, motivo: 'Importación · ' + lote,
+            resumen: t.dictado.seccion + ' — ' + t.dictado.dia + ' ' + t.dictado.ini + '-' + t.dictado.fin + ' en ' + t.dictado.aula + ' (' + t.c.campana + ')'},
+      function(r){
+        if(r.ok){ (t.c.hechos = t.c.hechos || {})[t.b.dia + t.b.ini] = 1; if(r.pendiente) pend++; else ok++; t.c.resultado = r.pendiente ? 'Enviado a revisión.' : 'Creado.'; }
+        else { fallos.push(t.dictado.seccion + ' ' + t.dictado.dia + ': ' + (r.error || 'error')); t.c.resultado = 'Falló: ' + (r.error || 'error'); }
+        siguiente(k + 1);
+      });
+  })(0);
 }
 
 var TABS = [
